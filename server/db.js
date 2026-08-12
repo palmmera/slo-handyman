@@ -8,7 +8,8 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, "..", "data");
+// On Render, use the persistent disk at /data; locally, use the project's data folder.
+const DATA_DIR = process.env.RENDER ? "/data" : path.join(__dirname, "..", "data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 
 const DEFAULT_DATA = { handymen: [], jobs: [], users: [], sessions: [], requests: [] };

@@ -9,7 +9,8 @@ import * as auth from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
-const UPLOADS_DIR = path.join(PUBLIC_DIR, "uploads");
+// On Render, store uploads on the persistent disk; locally, use public/uploads.
+const UPLOADS_DIR = process.env.RENDER ? "/data/uploads" : path.join(PUBLIC_DIR, "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const PORT = process.env.PORT || 3000;
@@ -60,6 +61,8 @@ app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
 // Larger limit so handymen can upload a (client-compressed) profile photo.
 app.use(express.json({ limit: "6mb" }));
 app.use(express.static(PUBLIC_DIR));
+// Serve uploaded photos from the uploads directory (which may be on a persistent disk).
+app.use("/uploads", express.static(UPLOADS_DIR));
 
 // --- Helpers --------------------------------------------------------------
 
