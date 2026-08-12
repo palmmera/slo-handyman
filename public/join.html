@@ -144,14 +144,25 @@
     }
 
     function showDashboardLink(id, token) {
-      const url = `/pro.html?id=${id}&token=${token}`;
-      statusArea.append(el("div", { class: "notice info", style: "margin-top:12px" }, [
-        el("strong", {}, "Your private job dashboard 🔖 "),
-        "Bookmark this link — it's how you'll see who hired you and their contact info:",
-        el("div", { style: "margin-top:8px;word-break:break-all" },
-          el("a", { href: url }, location.origin + url)),
-      ]));
-      statusArea.append(el("a", { class: "btn big", href: url, style: "margin-top:10px" }, "Open my job dashboard →"));
+      // You're logged in after joining, so the dashboard opens from your account —
+      // no link needed. Just log in anytime to see who hired you.
+      statusArea.append(el("a", { class: "btn big", href: "/pro.html", style: "margin-top:12px" }, "Open my job dashboard →"));
+      statusArea.append(el("p", { class: "hint", style: "text-align:center;margin-top:10px" },
+        "You're logged in. Log in anytime to see who hired you and their contact info."));
+
+      // Keep the private link as an optional backup (works even without logging in).
+      if (token) {
+        const url = `/pro.html?id=${id}&token=${token}`;
+        statusArea.append(el("details", { style: "margin-top:14px" }, [
+          el("summary", { style: "cursor:pointer;color:var(--muted);font-size:.85rem" },
+            "Prefer a bookmarkable private link?"),
+          el("div", { class: "notice info", style: "margin-top:10px" }, [
+            "This backup link opens your dashboard without logging in — keep it private:",
+            el("div", { style: "margin-top:8px;word-break:break-all" },
+              el("a", { href: url }, location.origin + url)),
+          ]),
+        ]));
+      }
     }
 
     form.addEventListener("submit", async (e) => {

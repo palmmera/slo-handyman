@@ -41,17 +41,25 @@
     <p style="color:var(--muted)" id="subtitle">Everyone who has hired you shows up here, with their contact info.</p>
 
     <div id="lookup" style="display:none">
-      <form id="lookupForm" class="form-card">
-        <div class="field">
-          <label>Paste your private dashboard link</label>
-          <input class="input" id="link" placeholder="https://.../pro.html?id=...&token=..." />
-          <div class="hint">You got this link when you joined. It's your private access to your jobs.</div>
-        </div>
-        <button class="btn block" type="submit">Open my jobs</button>
-        <div class="auth-divider">or</div>
-        <a class="btn secondary block" href="/login.html?next=/pro.html">Log in to your account</a>
+      <div class="form-card">
+        <p style="margin:0 0 14px;color:var(--muted)">Log in to your account to see who hired you and their contact info.</p>
+        <a class="btn block big" href="/login.html?next=/pro.html">Log in to your account</a>
+        <p class="hint" style="text-align:center;margin-top:12px">
+          New here? <a href="/join.html">Become a handyman →</a>
+        </p>
+        <details style="margin-top:18px">
+          <summary style="cursor:pointer;color:var(--muted);font-size:.85rem">Have an old private dashboard link instead?</summary>
+          <form id="lookupForm" style="margin-top:12px">
+            <div class="field">
+              <label>Paste your private dashboard link</label>
+              <input class="input" id="link" placeholder="https://.../pro.html?id=...&token=..." />
+              <div class="hint">A backup way in — logging in above is easier.</div>
+            </div>
+            <button class="btn secondary block" type="submit">Open with link</button>
+          </form>
+        </details>
         <div id="lookupErr" style="margin-top:10px"></div>
-      </form>
+      </div>
     </div>
 
     <div id="stats" class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));display:none"></div>
