@@ -1,0 +1,25 @@
+{
+  "name": "slo-handyman",
+  "version": "1.0.0",
+  "description": "A friendly handyman marketplace for San Luis Obispo. Customers pay a $5 booking fee and handymen pay a 5% commission, powered by Stripe Connect.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "keywords": [
+    "handyman",
+    "marketplace",
+    "stripe",
+    "san-luis-obispo"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jose": "^6.2.8",
+    "pngjs": "^7.0.0",
+    "stripe": "^16.8.0"
+  }
+}

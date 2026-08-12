@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Become a handyman — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><a href="/">Find a handyman</a><span id="authNav"></span></nav>
+    </div>
+  </header>
+
+  <main class="container center-narrow">
+    <div class="page-head"><a class="back" href="/">← Back home</a></div>
+    <h1 style="margin:.2em 0">Get hired in San Luis Obispo</h1>
+    <p style="color:var(--muted)">Join free. Set up payouts with Stripe and start accepting jobs. You keep your rate minus a small <span id="commLine">12%</span> commission per job.</p>
+
+    <div id="statusArea"></div>
+
+    <form id="joinForm" class="form-card">
+      <div class="field">
+        <label>Full name</label>
+        <input class="input" name="name" placeholder="Alex Carpenter" required />
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input class="input" type="email" name="email" placeholder="you@email.com" required autocomplete="email" />
+      </div>
+      <div class="field" id="passwordField">
+        <label>Create a password</label>
+        <input class="input" type="password" name="password" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8" />
+        <div class="hint">This is how you'll log back into your dashboard. <a href="/login.html?next=/join.html">Already have an account?</a></div>
+      </div>
+      <div class="field">
+        <label>Phone (optional)</label>
+        <input class="input" name="phone" placeholder="(805) 555-0123" autocomplete="tel" />
+      </div>
+      <div class="field">
+        <label>Services you offer</label>
+        <input class="input" name="services" placeholder="Plumbing, Electrical, Furniture assembly" required />
+        <div class="hint">Separate with commas.</div>
+      </div>
+      <div class="field">
+        <label>Areas you serve (optional)</label>
+        <input class="input" name="serviceAreas" placeholder="Downtown SLO, Los Osos, Pismo Beach…" />
+      </div>
+      <div class="field">
+        <label>Years of experience (optional)</label>
+        <input class="input" type="number" name="yearsExperience" min="0" step="1" placeholder="e.g. 5" />
+      </div>
+      <div style="display:flex;gap:18px;margin:-2px 0 14px;flex-wrap:wrap">
+        <label style="display:flex;gap:8px;align-items:center;font-weight:600">
+          <input type="checkbox" name="licensed" style="width:auto" /> I'm licensed
+        </label>
+        <label style="display:flex;gap:8px;align-items:center;font-weight:600">
+          <input type="checkbox" name="insured" style="width:auto" /> I'm insured
+        </label>
+      </div>
+      <div class="field">
+        <label>Hourly rate (USD, optional)</label>
+        <input class="input" type="number" name="hourlyRate" min="1" step="1" placeholder="e.g. 65" />
+      </div>
+      <div class="field">
+        <label>Short bio (optional)</label>
+        <textarea name="bio" placeholder="Tell customers about your experience…"></textarea>
+      </div>
+      <div class="summary">
+        <div class="row"><span>Cost to join</span><span>Free</span></div>
+        <div class="row"><span>Commission per job</span><span id="commSummary">12%</span></div>
+        <div class="row muted"><span>Payouts</span><span>Direct to your bank via Stripe</span></div>
+      </div>
+      <button class="btn block big" type="submit" id="joinBtn">Continue to payment setup →</button>
+      <p class="hint" style="text-align:center;margin-top:10px">You'll set up secure payouts with Stripe next.</p>
+    </form>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="disclaimer">
+        SLO Handyman is a booking platform that connects customers with independent local handymen.
+        We are not the handyman and do not perform the work. We are not responsible for the quality of
+        any job, property damage, injuries, or unpaid amounts — every job is an agreement directly
+        between the customer and the handyman. Use of the site is subject to our
+        <a href="/terms.html">Terms &amp; Conditions</a>.
+      </p>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { getConfig, el, qs, getMe, renderAuthNav } from "/js/common.js";
+
+    const statusArea = document.getElementById("statusArea");
+    const form = document.getElementById("joinForm");
+    let config;
+
+    async function init() {
+      config = await getConfig();
+      renderAuthNav();
+      document.getElementById("commLine").textContent = config.commissionPercent + "%";
+      document.getElementById("commSummary").textContent = config.commissionPercent + "%";
+
+      // If already signed in, prefill and skip password. If they already have a
+      // handyman profile, send them straight to their dashboard.
+      const me = await getMe();
+      if (me) {
+        if (me.handymanId) { window.location = "/pro.html"; return; }
+        document.getElementById("passwordField").style.display = "none";
+        form.password.required = false;
+        form.name.value = me.name || "";
+        form.email.value = me.email || "";
+        if (me.phone) form.phone.value = me.phone;
+      }
+
+      if (!config.stripeConfigured) {
+        statusArea.append(el("div", { class: "notice warn" },
+          "Note: Stripe isn't set up yet, so payout onboarding is disabled. Add your Stripe keys to .env to enable it."));
+      }
+
+      // Returning from Stripe onboarding?
+      if (qs("onboarded") && qs("id")) {
+        const token = qs("token") || "";
+        const res = await fetch(`/api/handymen/${qs("id")}/status`);
+        const h = await res.json();
+        form.style.display = "none";
+        if (h.ready) {
+          statusArea.append(el("div", { class: "notice ok" },
+            "🎉 You're all set! Your profile is live and you can now be hired."));
+          showDashboardLink(h.id, token);
+          statusArea.append(el("a", { class: "btn secondary big", href: `/handyman.html?id=${h.id}`, style: "margin-top:10px" }, "View my public profile"));
+        } else {
+          statusArea.append(el("div", { class: "notice info" },
+            "Almost there — Stripe still needs a bit more info before you can accept payments."));
+          statusArea.append(el("a", { class: "btn big", href: `/api/handymen/${h.id}/onboarding-refresh`, style: "margin-top:12px" }, "Finish payment setup"));
+          if (token) showDashboardLink(h.id, token);
+        }
+      }
+    }
+
+    function showDashboardLink(id, token) {
+      const url = `/pro.html?id=${id}&token=${token}`;
+      statusArea.append(el("div", { class: "notice info", style: "margin-top:12px" }, [
+        el("strong", {}, "Your private job dashboard 🔖 "),
+        "Bookmark this link — it's how you'll see who hired you and their contact info:",
+        el("div", { style: "margin-top:8px;word-break:break-all" },
+          el("a", { href: url }, location.origin + url)),
+      ]));
+      statusArea.append(el("a", { class: "btn big", href: url, style: "margin-top:10px" }, "Open my job dashboard →"));
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("joinBtn");
+      btn.disabled = true;
+      btn.textContent = "Setting up…";
+      const data = Object.fromEntries(new FormData(form).entries());
+      data.licensed = form.licensed.checked;
+      data.insured = form.insured.checked;
+      try {
+        const res = await fetch("/api/handymen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || "Something went wrong.");
+        if (out.onboardingUrl) {
+          window.location = out.onboardingUrl;
+        } else {
+          form.style.display = "none";
+          statusArea.append(el("div", { class: "notice ok" },
+            "Profile created! (Stripe isn't configured, so payout setup was skipped.)"));
+          showDashboardLink(out.handyman.id, out.manageToken);
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Continue to payment setup →";
+        const existing = statusArea.querySelector(".notice.error");
+        if (existing) existing.remove();
+        statusArea.append(el("div", { class: "notice error" }, err.message));
+      }
+    });
+
+    init().catch(console.error);
+  </script>
+</body>
+</html>

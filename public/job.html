@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My booking — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><span style="font-weight:700">My booking</span></nav>
+    </div>
+  </header>
+
+  <main class="container center-narrow">
+    <div class="page-head"><a class="back" href="/">← Home</a></div>
+    <div id="root"><div class="skeleton">Loading your booking…</div></div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="disclaimer">
+        SLO Handyman is a booking platform that connects customers with independent local handymen.
+        We are not the handyman and do not perform the work. We are not responsible for the quality of
+        any job, property damage, injuries, or unpaid amounts — every job is an agreement directly
+        between the customer and the handyman. Use of the site is subject to our
+        <a href="/terms.html">Terms &amp; Conditions</a>.
+      </p>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { el, money, qs, starsHtml } from "/js/common.js";
+
+    const id = qs("id");
+    const token = qs("token");
+    const root = document.getElementById("root");
+
+    async function load() {
+      if (!id || !token) {
+        root.innerHTML = "";
+        root.append(el("div", { class: "notice error" }, "This page needs your private booking link."));
+        return;
+      }
+      let job;
+      try {
+        const res = await fetch(`/api/jobs/${id}?token=${encodeURIComponent(token)}`);
+        if (!res.ok) throw new Error();
+        job = await res.json();
+      } catch {
+        root.innerHTML = "";
+        root.append(el("div", { class: "notice error" }, "We couldn't find this booking. Please use your full booking link."));
+        return;
+      }
+      render(job);
+    }
+
+    function statusNotice(job) {
+      if (job.status === "paid")
+        return el("div", { class: "notice info" }, "Your payment is held safely. Release it once the work is finished.");
+      if (job.status === "work_done")
+        return el("div", { class: "notice warn" }, `${job.handyman?.name || "Your handyman"} marked the work as done. If you're satisfied, release the payment below.`);
+      if (job.status === "completed")
+        return el("div", { class: "notice ok" }, "Completed — payment released. Thank you!");
+      return el("div", { class: "notice info" }, "Booking created.");
+    }
+
+    function render(job) {
+      root.innerHTML = "";
+
+      root.append(el("h1", { style: "margin:.2em 0" }, job.service || "Your booking"));
+      root.append(statusNotice(job));
+
+      // Contact card
+      if (job.handyman) {
+        const c = el("div", { class: "summary", style: "text-align:left" }, [
+          el("div", { style: "font-weight:800;margin-bottom:6px" }, `Handyman: ${job.handyman.name}`),
+        ]);
+        if (job.handyman.phone) c.append(el("div", { class: "row" }, [el("span", {}, "Phone"), el("a", { href: `tel:${job.handyman.phone}` }, job.handyman.phone)]));
+        if (job.handyman.email) c.append(el("div", { class: "row" }, [el("span", {}, "Email"), el("a", { href: `mailto:${job.handyman.email}` }, job.handyman.email)]));
+        root.append(c);
+      }
+
+      // Price breakdown
+      const price = el("div", { class: "summary", style: "text-align:left" }, []);
+      if (job.estimatedHours && job.hourlyRate)
+        price.append(el("div", { class: "row muted" }, [el("span", {}, `${money(job.hourlyRate)}/hr × ${job.estimatedHours} hr (estimate)`), el("span", {}, "")]));
+      price.append(el("div", { class: "row" }, [el("span", {}, "Job price"), el("span", {}, money(job.jobAmount))]));
+      price.append(el("div", { class: "row" }, [el("span", {}, "Booking fee"), el("span", {}, money(job.bookingFee))]));
+      price.append(el("div", { class: "row total" }, [el("span", {}, "Total paid"), el("span", {}, money(job.totalCharged))]));
+      root.append(price);
+
+      // Release action (escrow)
+      if (job.status === "paid" || job.status === "work_done") {
+        const card = el("div", { class: "form-card", style: "text-align:center;margin-top:8px" });
+        card.append(
+          el("h2", { style: "margin:0 0 6px" }, "Is the job done?"),
+          el("p", { class: "hint", style: "margin:0 0 10px" }, `Only release payment once you're happy with the work. ${job.handyman?.name || "Your handyman"} will receive ${money(job.handymanPayout)}.`)
+        );
+        const btn = el("button", { class: "btn big block" }, "✓ Job's done — release payment");
+        const msg = el("div");
+        btn.addEventListener("click", async () => {
+          if (!confirm("Release the payment to your handyman? This can't be undone.")) return;
+          btn.disabled = true;
+          btn.textContent = "Releasing…";
+          try {
+            const res = await fetch(`/api/jobs/${id}/release`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token }),
+            });
+            const out = await res.json();
+            if (!res.ok) throw new Error(out.error || "Couldn't release payment.");
+            load();
+          } catch (err) {
+            btn.disabled = false;
+            btn.textContent = "✓ Job's done — release payment";
+            msg.innerHTML = "";
+            msg.append(el("div", { class: "notice error" }, err.message));
+          }
+        });
+        card.append(btn, msg);
+        root.append(card);
+      }
+
+      // Review (after completion)
+      if (job.status === "completed") {
+        renderReview(job);
+      }
+    }
+
+    function renderReview(job) {
+      const card = el("div", { class: "form-card", style: "max-width:440px;margin:14px auto 20px;text-align:center" });
+      if (typeof job.rating === "number") {
+        card.append(
+          el("h2", { style: "margin:0 0 6px" }, "Your review"),
+          el("div", { style: "font-size:1.7rem", html: starsHtml(job.rating) }),
+          job.reviewNote ? el("p", {}, `\u201c${job.reviewNote}\u201d`) : null
+        );
+        root.append(card);
+        return;
+      }
+
+      card.append(
+        el("h2", { style: "margin:0 0 2px" }, `Rate ${job.handyman?.name || "your handyman"}`),
+        el("p", { class: "hint", style: "margin:0" }, "Tap the stars to rate the job.")
+      );
+      let current = 0;
+      const stars = [];
+      const starWrap = el("div", { class: "star-input" });
+      const paint = (n) => stars.forEach((s, i) => s.classList.toggle("on", i < n));
+      for (let i = 1; i <= 5; i++) {
+        const s = el("span", { class: "st", title: `${i} star${i > 1 ? "s" : ""}` }, "★");
+        s.addEventListener("mouseenter", () => paint(i));
+        s.addEventListener("click", () => { current = i; paint(i); });
+        starWrap.append(s);
+        stars.push(s);
+      }
+      starWrap.addEventListener("mouseleave", () => paint(current));
+
+      const note = el("textarea", { class: "input", placeholder: "Add a note (optional)", style: "margin-top:12px" });
+      const btn = el("button", { class: "btn block", style: "margin-top:12px" }, "Submit review");
+      const msg = el("div");
+      btn.addEventListener("click", async () => {
+        if (!current) { msg.innerHTML = ""; msg.append(el("div", { class: "notice error" }, "Please pick 1 to 5 stars.")); return; }
+        btn.disabled = true;
+        btn.textContent = "Saving…";
+        try {
+          const res = await fetch(`/api/jobs/${id}/review`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token, rating: current, note: note.value }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "Couldn't save review.");
+          card.innerHTML = "";
+          card.append(
+            el("div", { style: "font-size:30px" }, "🙏"),
+            el("h2", { style: "margin:6px 0" }, "Thanks for your review!"),
+            el("div", { style: "font-size:1.7rem", html: starsHtml(out.rating) })
+          );
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = "Submit review";
+          msg.innerHTML = "";
+          msg.append(el("div", { class: "notice error" }, err.message));
+        }
+      });
+      card.append(starWrap, note, btn, msg);
+      root.append(card);
+    }
+
+    load();
+  </script>
+</body>
+</html>

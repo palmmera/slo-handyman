@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hire a handyman — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><a href="/join.html">Become a handyman</a><span id="authNav"></span></nav>
+    </div>
+  </header>
+
+  <main class="container center-narrow">
+    <div class="page-head"><a class="back" href="/">← Back to all handymen</a></div>
+
+    <div id="profile"><div class="skeleton">Loading…</div></div>
+
+    <div id="hireArea"></div>
+
+    <div id="reviews"></div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="disclaimer">
+        SLO Handyman is a booking platform that connects customers with independent local handymen.
+        We are not the handyman and do not perform the work. We are not responsible for the quality of
+        any job, property damage, injuries, or unpaid amounts — every job is an agreement directly
+        between the customer and the handyman. Use of the site is subject to our
+        <a href="/terms.html">Terms &amp; Conditions</a>.
+      </p>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { getConfig, avatarEl, el, money, qs, starsHtml, getMe, renderAuthNav } from "/js/common.js";
+
+    const id = qs("id");
+    const canceled = qs("canceled");
+    const profileEl = document.getElementById("profile");
+    const hireArea = document.getElementById("hireArea");
+    const reviewsEl = document.getElementById("reviews");
+    let config;
+    let me = null;
+
+    async function load() {
+      config = await getConfig();
+      renderAuthNav();
+      me = await getMe();
+      const res = await fetch(`/api/handymen/${id}`);
+      if (!res.ok) {
+        profileEl.innerHTML = "";
+        profileEl.append(el("div", { class: "notice error" }, "Handyman not found."));
+        return;
+      }
+      const h = await res.json();
+      renderProfile(h);
+      renderHire(h);
+      loadReviews();
+    }
+
+    async function loadReviews() {
+      try {
+        const data = await fetch(`/api/handymen/${id}/reviews`).then((r) => r.json());
+        if (!data.reviews || !data.reviews.length) return;
+        const section = el("div", { class: "card", style: "margin-top:16px" }, [
+          el("div", { style: "display:flex;align-items:center;gap:8px;margin-bottom:6px" }, [
+            el("h2", { style: "margin:0;font-size:1.2rem" }, "Reviews"),
+            el("span", { html: starsHtml(data.rating.average) }),
+            el("span", { class: "rating-count" }, `${data.rating.average} · ${data.rating.count} review${data.rating.count > 1 ? "s" : ""}`),
+          ]),
+        ]);
+        for (const rev of data.reviews) {
+          section.append(el("div", { class: "review-item" }, [
+            el("div", { style: "display:flex;justify-content:space-between;align-items:center" }, [
+              el("span", { html: starsHtml(rev.rating) }),
+              el("span", { class: "meta" }, rev.date ? new Date(rev.date).toLocaleDateString() : ""),
+            ]),
+            rev.note ? el("p", { style: "margin:6px 0 2px" }, rev.note) : null,
+            el("div", { class: "meta" }, `${rev.customerName} · ${rev.service || "Job"}`),
+          ]));
+        }
+        reviewsEl.append(section);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderProfile(h) {
+      const av = avatarEl(h, "width:64px;height:64px;font-size:1.5rem");
+      const badge = h.ready
+        ? el("span", { class: "badge ready" }, "✓ Ready to hire")
+        : el("span", { class: "badge pending" }, "Not accepting jobs yet");
+
+      const r = h.rating || { average: null, count: 0 };
+      const ratingLine = r.count
+        ? el("div", { class: "rating-line", style: "margin-top:4px" }, [
+            el("span", { html: starsHtml(r.average) }),
+            el("span", { class: "rating-count" }, `${r.average} (${r.count} review${r.count > 1 ? "s" : ""})`),
+          ])
+        : el("div", { class: "rating-none", style: "margin-top:4px" }, "New — no reviews yet");
+
+      profileEl.innerHTML = "";
+      profileEl.append(el("div", { class: "card" }, [
+        el("div", { class: "hm-top" }, [
+          av,
+          el("div", {}, [
+            el("div", { class: "hm-name", style: "font-size:1.3rem" }, h.name),
+            el("div", { class: "hm-city" }, `📍 ${h.city}`),
+            ratingLine,
+          ]),
+        ]),
+        el("div", { class: "tags" }, (h.services || []).map((s) => el("span", { class: "tag" }, s))),
+        h.bio ? el("p", { style: "color:var(--muted);margin:6px 0 0" }, h.bio) : null,
+        el("div", { class: "hm-meta" }, [
+          h.hourlyRate
+            ? el("div", { class: "rate" }, [money(h.hourlyRate), el("span", {}, "/hr")])
+            : el("div", { class: "rate" }, [el("span", {}, "Rate on request")]),
+          badge,
+        ]),
+      ]));
+    }
+
+    function renderHire(h) {
+      hireArea.innerHTML = "";
+
+      if (canceled) {
+        hireArea.append(el("div", { class: "notice info" }, "Payment canceled — no charge was made. You can try again below."));
+      }
+
+      if (!config.stripeConfigured) {
+        hireArea.append(el("div", { class: "notice warn" },
+          "Online hiring isn't active yet (Stripe keys missing in .env)."));
+        return;
+      }
+      if (!h.ready) {
+        hireArea.append(el("div", { class: "notice warn" },
+          `${h.name} is still finishing their payment setup, so they can't be hired just yet. Check back soon.`));
+        return;
+      }
+
+      // Accounts are required to book — prompt guests to log in or sign up first.
+      if (!me) {
+        const next = encodeURIComponent(location.pathname + location.search);
+        hireArea.append(el("div", { class: "form-card", style: "margin-top:16px;text-align:center" }, [
+          el("h2", { style: "margin-top:0" }, `Book ${h.name}`),
+          el("p", { style: "color:var(--muted)" }, "Create a free account (or log in) to book, pay securely, and track your job. It only takes a minute."),
+          el("a", { class: "btn block big", href: `/login.html?mode=signup&next=${next}` }, "Create an account to book"),
+          el("a", { class: "btn secondary block", href: `/login.html?next=${next}`, style: "margin-top:10px" }, "I already have an account"),
+        ]));
+        return;
+      }
+
+      const form = el("form", { class: "form-card", style: "margin-top:16px" });
+      form.innerHTML = `
+        <h2 style="margin-top:0">Hire ${h.name}</h2>
+        <div class="field">
+          <label>Your name</label>
+          <input class="input" name="customerName" placeholder="Jane Doe" required />
+        </div>
+        <div class="field">
+          <label>Your email</label>
+          <input class="input" type="email" name="customerEmail" placeholder="you@email.com" required />
+          <div class="hint">Your receipt goes here.</div>
+        </div>
+        <div class="field">
+          <label>Your phone</label>
+          <input class="input" type="tel" name="customerPhone" placeholder="(805) 555-0123" required />
+          <div class="hint">Shared with your handyman so they can coordinate the visit.</div>
+        </div>
+        <div class="field">
+          <label>What do you need done?</label>
+          <input class="input" name="service" placeholder="e.g. Mount a TV, fix a leaky faucet" required />
+        </div>
+        <div class="field">
+          <label>Details (optional)</label>
+          <textarea name="description" placeholder="Any extra info for the handyman…"></textarea>
+        </div>
+        <div class="field">
+          <label>Preferred date (optional)</label>
+          <input class="input" type="date" name="scheduledFor" />
+        </div>
+        <div class="field" id="hoursField">
+          <label>Estimated hours needed</label>
+          <input class="input" type="number" name="estimatedHours" min="0.5" step="0.5" value="2" />
+          <div class="hint" id="rateHint"></div>
+        </div>
+        <label id="flatToggleWrap" style="display:flex;gap:8px;align-items:center;font-weight:600;margin:-4px 0 12px">
+          <input type="checkbox" id="flatToggle" style="width:auto" /> This is a flat-price job
+        </label>
+        <div class="field" id="flatField" style="display:none">
+          <label>Agreed total price (USD)</label>
+          <input class="input" type="number" name="flatAmount" min="1" step="1" placeholder="e.g. 150" />
+        </div>
+        <div class="summary" id="summary"></div>
+        <button class="btn block big" type="submit" id="payBtn">Book & pay securely</button>
+        <p class="hint" style="text-align:center;margin-top:10px">🔒 Secure payment via Stripe. Your money is held safely and only released to the handyman after the job is done.</p>
+      `;
+      hireArea.append(form);
+
+      // Prefill identity from the logged-in account.
+      if (me.name) form.customerName.value = me.name;
+      if (me.email) form.customerEmail.value = me.email;
+      if (me.phone) form.customerPhone.value = me.phone;
+
+      const hasRate = !!h.hourlyRate;
+      const rate = h.hourlyRate || 0;
+      const summary = form.querySelector("#summary");
+      const hoursField = form.querySelector("#hoursField");
+      const flatToggleWrap = form.querySelector("#flatToggleWrap");
+      const flatToggle = form.querySelector("#flatToggle");
+      const flatField = form.querySelector("#flatField");
+      const hoursInput = form.querySelector('[name="estimatedHours"]');
+      const flatInput = form.querySelector('[name="flatAmount"]');
+      const rateHint = form.querySelector("#rateHint");
+
+      if (hasRate) {
+        rateHint.textContent = `${h.name}'s rate is ${money(rate)}/hr. The final price can be adjusted for actual hours after the job.`;
+      } else {
+        hoursField.style.display = "none";
+        flatToggleWrap.style.display = "none";
+        flatField.style.display = "block";
+        flatInput.required = true;
+      }
+
+      const isFlat = () => !hasRate || flatToggle.checked;
+      function currentAmount() {
+        if (isFlat()) return Number(flatInput.value) || 0;
+        return Math.round(rate * (Number(hoursInput.value) || 0) * 100) / 100;
+      }
+
+      function updateSummary() {
+        const amount = currentAmount();
+        const total = amount + config.bookingFee;
+        const payout = Math.max(0, amount - amount * config.commissionPercent / 100);
+        const hrsLine = isFlat() ? "" :
+          `<div class="row muted"><span>${money(rate)}/hr × ${Number(hoursInput.value) || 0} hr</span><span></span></div>`;
+        summary.innerHTML = `
+          ${hrsLine}
+          <div class="row"><span>Job price${isFlat() ? "" : " (estimate)"}</span><span>${money(amount)}</span></div>
+          <div class="row"><span>Booking fee</span><span>${money(config.bookingFee)}</span></div>
+          <div class="row total"><span>You pay today</span><span>${money(total)}</span></div>
+          <div class="row muted"><span>🔒 Held until you release it</span><span></span></div>
+          <div class="row muted"><span>${h.name} gets on release</span><span>${money(payout)}</span></div>
+        `;
+      }
+
+      hoursInput.addEventListener("input", updateSummary);
+      flatInput.addEventListener("input", updateSummary);
+      flatToggle.addEventListener("change", () => {
+        hoursField.style.display = flatToggle.checked ? "none" : "block";
+        flatField.style.display = flatToggle.checked ? "block" : "none";
+        updateSummary();
+      });
+      updateSummary();
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const showError = (m) => {
+          const existing = form.querySelector(".notice.error");
+          if (existing) existing.remove();
+          form.insertBefore(el("div", { class: "notice error" }, m), summary);
+        };
+        const amount = currentAmount();
+        if (!amount || amount < 1) return showError("Please enter the hours or a valid price.");
+
+        const btn = form.querySelector("#payBtn");
+        btn.disabled = true;
+        btn.textContent = "Redirecting to secure checkout…";
+        const data = {
+          handymanId: id,
+          customerName: form.customerName.value,
+          customerEmail: form.customerEmail.value,
+          customerPhone: form.customerPhone.value,
+          service: form.service.value,
+          description: form.description.value,
+          scheduledFor: form.scheduledFor.value,
+          jobAmount: amount,
+        };
+        if (!isFlat()) { data.estimatedHours = Number(hoursInput.value); data.hourlyRate = rate; }
+        try {
+          const res = await fetch("/api/checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "Something went wrong.");
+          window.location = out.url;
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = "Book & pay securely";
+          showError(err.message);
+        }
+      });
+    }
+
+    load().catch((e) => {
+      profileEl.innerHTML = "";
+      profileEl.append(el("div", { class: "notice error" }, "Couldn't load this handyman."));
+      console.error(e);
+    });
+  </script>
+</body>
+</html>

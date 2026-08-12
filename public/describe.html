@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Describe your job — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><a href="/">Find a handyman</a><span id="authNav"></span></nav>
+    </div>
+  </header>
+
+  <main class="container center-narrow">
+    <div class="page-head"><a class="back" href="/">← Back home</a></div>
+    <h1 style="margin:.2em 0">Tell us about your job</h1>
+    <p style="color:var(--muted)">Not sure which category fits? Describe what you need and we'll match you with the right local handyman. It's free and there's no obligation.</p>
+
+    <div id="statusArea"></div>
+
+    <form id="requestForm" class="form-card">
+      <div class="field">
+        <label>What do you need done?</label>
+        <textarea name="description" placeholder="e.g. Mount a 65&quot; TV on drywall, hang 3 shelves, and fix a squeaky door." required minlength="10"></textarea>
+        <div class="hint">A few details help handymen give you an accurate quote.</div>
+      </div>
+
+      <div class="field">
+        <label>Closest category (optional)</label>
+        <select class="input" name="category">
+          <option value="">Not sure / something else</option>
+          <option>Painting</option>
+          <option>Plumbing</option>
+          <option>Electrical</option>
+          <option>Installation</option>
+          <option>Repairs</option>
+          <option>Moving</option>
+          <option>Pressure Washing</option>
+          <option>Other</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Your name</label>
+        <input class="input" name="name" placeholder="Jordan Smith" required />
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label>Email</label>
+          <input class="input" type="email" name="email" placeholder="you@email.com" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label>Phone</label>
+          <input class="input" name="phone" placeholder="(805) 555-0123" autocomplete="tel" />
+        </div>
+      </div>
+      <div class="hint" style="margin:-6px 0 14px">Add at least one so a handyman can reach you.</div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label>Area / neighborhood (optional)</label>
+          <input class="input" name="area" placeholder="Downtown SLO, Los Osos…" />
+        </div>
+        <div class="field">
+          <label>When do you need it? (optional)</label>
+          <input class="input" name="timing" placeholder="This week, ASAP, flexible…" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Budget (optional)</label>
+        <input class="input" name="budget" placeholder="e.g. around $150, or open to quotes" />
+      </div>
+
+      <button class="btn block" type="submit">Send my request</button>
+      <div id="formErr"></div>
+    </form>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="disclaimer">
+        SLO Handyman is a booking platform that connects customers with independent local handymen.
+        We are not the handyman and do not perform the work. We are not responsible for the quality of
+        any job, property damage, injuries, or unpaid amounts — every job is an agreement directly
+        between the customer and the handyman. Use of the site is subject to our
+        <a href="/terms.html">Terms &amp; Conditions</a>.
+      </p>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { el, getMe, renderAuthNav } from "/js/common.js";
+
+    const form = document.getElementById("requestForm");
+    const formErr = document.getElementById("formErr");
+    const statusArea = document.getElementById("statusArea");
+
+    async function init() {
+      renderAuthNav();
+      // Pre-fill contact details from the logged-in account, if any.
+      const me = await getMe();
+      if (me) {
+        if (me.name) form.name.value = me.name;
+        if (me.email) form.email.value = me.email;
+        if (me.phone) form.phone.value = me.phone;
+      }
+      // Pre-select the category if arriving from a tile (?category=Plumbing).
+      const cat = new URLSearchParams(location.search).get("category");
+      if (cat) {
+        const opt = [...form.category.options].find((o) => o.value.toLowerCase() === cat.toLowerCase());
+        if (opt) form.category.value = opt.value;
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      formErr.innerHTML = "";
+      const email = form.email.value.trim();
+      const phone = form.phone.value.trim();
+      if (!email && !phone) {
+        formErr.append(el("div", { class: "notice error" }, "Please add an email or phone so a handyman can reach you."));
+        return;
+      }
+      const btn = form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+
+      const payload = {
+        description: form.description.value.trim(),
+        category: form.category.value,
+        name: form.name.value.trim(),
+        email,
+        phone,
+        area: form.area.value.trim(),
+        timing: form.timing.value.trim(),
+        budget: form.budget.value.trim(),
+      };
+
+      try {
+        const res = await fetch("/api/requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Something went wrong.");
+        form.style.display = "none";
+        statusArea.innerHTML = "";
+        statusArea.append(el("div", { class: "notice ok" }, [
+          el("h3", { style: "margin:0 0 6px" }, "Request received! ✅"),
+          el("p", { style: "margin:0" }, "Thanks — we've got your job details. We'll match you with a local handyman and reach out shortly. In the meantime, feel free to browse pros."),
+          el("a", { class: "btn", href: "/", style: "margin-top:12px" }, "Browse handymen"),
+        ]));
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } catch (err) {
+        formErr.append(el("div", { class: "notice error" }, err.message));
+        btn.disabled = false;
+        btn.textContent = "Send my request";
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

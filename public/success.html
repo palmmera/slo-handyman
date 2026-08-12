@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Booking confirmed — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+    </div>
+  </header>
+
+  <main class="container center-narrow" style="text-align:center;padding-top:40px">
+    <div id="result"><div class="skeleton">Confirming your payment…</div></div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="disclaimer">
+        SLO Handyman is a booking platform that connects customers with independent local handymen.
+        We are not the handyman and do not perform the work. We are not responsible for the quality of
+        any job, property damage, injuries, or unpaid amounts — every job is an agreement directly
+        between the customer and the handyman. Use of the site is subject to our
+        <a href="/terms.html">Terms &amp; Conditions</a>.
+      </p>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { el, money, qs, starsHtml } from "/js/common.js";
+    const result = document.getElementById("result");
+    const sessionId = qs("session_id");
+
+    function renderReview(job) {
+      if (!job || !job.reviewToken) return;
+      const card = el("div", { class: "form-card", style: "max-width:420px;margin:8px auto 20px;text-align:center" });
+      const heading = el("h2", { style: "margin:0 0 2px" }, job.rating ? "Update your review" : `Rate ${job.handymanName}`);
+      const sub = el("p", { class: "hint", style: "margin:0" }, "Tap the stars to rate the job.");
+      card.append(heading, sub);
+
+      let current = job.rating || 0;
+      const stars = [];
+      const starWrap = el("div", { class: "star-input" });
+      const paint = (n) => stars.forEach((s, idx) => s.classList.toggle("on", idx < n));
+      for (let i = 1; i <= 5; i++) {
+        const s = el("span", { class: "st", title: `${i} star${i > 1 ? "s" : ""}` }, "★");
+        s.addEventListener("mouseenter", () => paint(i));
+        s.addEventListener("click", () => { current = i; paint(i); });
+        starWrap.append(s);
+        stars.push(s);
+      }
+      starWrap.addEventListener("mouseleave", () => paint(current));
+      paint(current);
+
+      const note = el("textarea", { class: "input", placeholder: "Add a note about your experience (optional)", style: "margin-top:12px" });
+      if (job.reviewNote) note.value = job.reviewNote;
+      const btn = el("button", { class: "btn block", style: "margin-top:12px" }, job.rating ? "Update review" : "Submit review");
+      const msg = el("div");
+
+      btn.addEventListener("click", async () => {
+        if (!current) {
+          msg.innerHTML = "";
+          msg.append(el("div", { class: "notice error" }, "Please pick 1 to 5 stars."));
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = "Saving…";
+        try {
+          const res = await fetch(`/api/jobs/${job.id}/review`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: job.reviewToken, rating: current, note: note.value }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "Couldn't save review.");
+          card.innerHTML = "";
+          card.append(
+            el("div", { style: "font-size:30px" }, "🙏"),
+            el("h2", { style: "margin:6px 0" }, "Thanks for your review!"),
+            el("div", { style: "font-size:1.7rem", html: starsHtml(out.rating) })
+          );
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = job.rating ? "Update review" : "Submit review";
+          msg.innerHTML = "";
+          msg.append(el("div", { class: "notice error" }, err.message));
+        }
+      });
+
+      card.append(starWrap, note, btn, msg);
+      result.append(card);
+    }
+
+    async function run() {
+      if (!sessionId) {
+        result.innerHTML = "";
+        result.append(el("div", { class: "notice info" }, "Thanks for stopping by."));
+        return;
+      }
+      const res = await fetch(`/api/session/${sessionId}`);
+      const data = await res.json();
+      result.innerHTML = "";
+      if (data.paid) {
+        result.append(
+          el("div", { style: "font-size:56px" }, "✅"),
+          el("h1", {}, "Booking confirmed!"),
+          el("p", { style: "color:var(--muted)" },
+            data.job ? `Your request for "${data.job.service}" is booked and your payment is held safely. Your handyman only gets paid once you confirm the job is done.` : "Your booking is confirmed."),
+        );
+
+        if (data.handyman) {
+          const contact = el("div", { class: "summary", style: "text-align:left;max-width:380px;margin:18px auto" }, [
+            el("div", { style: "font-weight:800;margin-bottom:6px" }, `Your handyman: ${data.handyman.name}`),
+          ]);
+          if (data.handyman.phone) {
+            contact.append(el("div", { class: "row" }, [
+              el("span", {}, "Phone"),
+              el("a", { href: `tel:${data.handyman.phone}` }, data.handyman.phone),
+            ]));
+          }
+          if (data.handyman.email) {
+            contact.append(el("div", { class: "row" }, [
+              el("span", {}, "Email"),
+              el("a", { href: `mailto:${data.handyman.email}` }, data.handyman.email),
+            ]));
+          }
+          result.append(contact);
+        }
+
+        if (data.job) {
+          result.append(el("div", { class: "summary", style: "text-align:left;max-width:380px;margin:12px auto 20px" }, [
+            el("div", { class: "row" }, [el("span", {}, "Service"), el("span", {}, data.job.service || "—")]),
+            data.job.scheduledFor ? el("div", { class: "row" }, [el("span", {}, "Preferred date"), el("span", {}, data.job.scheduledFor)]) : null,
+            el("div", { class: "row" }, [el("span", {}, "Job price"), el("span", {}, money(data.job.jobAmount))]),
+            el("div", { class: "row" }, [el("span", {}, "Booking fee"), el("span", {}, money(data.job.bookingFee))]),
+            el("div", { class: "row total" }, [el("span", {}, "Total paid"), el("span", {}, money(data.job.totalCharged))]),
+          ]));
+        }
+        if (data.job && data.job.manageToken) {
+          const url = `/job.html?id=${data.job.id}&token=${data.job.manageToken}`;
+          result.append(el("div", { class: "notice info", style: "text-align:left;max-width:420px;margin:8px auto" }, [
+            el("strong", {}, "Bookmark your booking link 🔖 "),
+            "When the work is finished, open this to release payment and leave a review:",
+            el("div", { style: "margin-top:8px;word-break:break-all" }, el("a", { href: url }, location.origin + url)),
+          ]));
+          result.append(el("a", { class: "btn big", href: url }, "Manage my booking →"));
+          result.append(el("a", { class: "btn secondary", href: "/", style: "margin-top:10px" }, "Back to home"));
+        } else {
+          result.append(el("a", { class: "btn secondary", href: "/" }, "Back to home"));
+        }
+      } else {
+        result.append(
+          el("div", { class: "notice warn" }, "We couldn't confirm the payment yet. If you were charged, it will appear shortly."),
+          el("a", { class: "btn secondary", href: "/" }, "Back to home"),
+        );
+      }
+    }
+    run().catch((e) => {
+      result.innerHTML = "";
+      result.append(el("div", { class: "notice error" }, "Something went wrong confirming your booking."));
+      console.error(e);
+    });
+  </script>
+</body>
+</html>

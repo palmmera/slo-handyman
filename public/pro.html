@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My jobs — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+  <style>
+    .job { text-align:left; }
+    .job .head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .job .svc { font-weight:800; font-size:1.05rem; }
+    .contact { background:#f7f6f2; border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:12px 0; }
+    .contact .row { display:flex; justify-content:space-between; padding:3px 0; }
+    .stat .big { font-size:1.7rem; font-weight:800; }
+    .stat .lbl { color:var(--muted); font-size:.85rem; }
+    .badge.completed { background:#e5f6ec; color:var(--green); }
+    .badge.paid { background:#eef1f8; color:var(--brand); }
+    .profile-card .phead { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .profile-card .prow { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-top:1px solid var(--line); }
+    .profile-card .prow:first-of-type { border-top:0; }
+    .profile-card .prow .k { color:var(--muted); }
+    .profile-card .prow .v { text-align:right; font-weight:600; }
+    .edit-grid { display:grid; gap:12px; margin-top:6px; }
+    .edit-grid .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:520px){ .edit-grid .row2 { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><span style="font-weight:700">My jobs</span><span id="authNav"></span></nav>
+    </div>
+  </header>
+
+  <main class="container center-narrow">
+    <div class="page-head"><a class="back" href="/">← Home</a></div>
+    <h1 id="title" style="margin:.2em 0">My job dashboard</h1>
+    <p style="color:var(--muted)" id="subtitle">Everyone who has hired you shows up here, with their contact info.</p>
+
+    <div id="lookup" style="display:none">
+      <form id="lookupForm" class="form-card">
+        <div class="field">
+          <label>Paste your private dashboard link</label>
+          <input class="input" id="link" placeholder="https://.../pro.html?id=...&token=..." />
+          <div class="hint">You got this link when you joined. It's your private access to your jobs.</div>
+        </div>
+        <button class="btn block" type="submit">Open my jobs</button>
+        <div class="auth-divider">or</div>
+        <a class="btn secondary block" href="/login.html?next=/pro.html">Log in to your account</a>
+        <div id="lookupErr" style="margin-top:10px"></div>
+      </form>
+    </div>
+
+    <div id="stats" class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));display:none"></div>
+    <div id="profile" style="margin-top:16px"></div>
+    <div id="jobs" style="margin-top:16px"></div>
+    <div id="danger" style="display:none;text-align:center;margin:34px 0 10px">
+      <a href="#" id="deleteAccount" style="color:var(--muted);font-size:.78rem;text-decoration:underline">Delete my account</a>
+      <div id="deleteMsg"></div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="disclaimer">
+        SLO Handyman is a booking platform that connects customers with independent local handymen.
+        We are not the handyman and do not perform the work. We are not responsible for the quality of
+        any job, property damage, injuries, or unpaid amounts — every job is an agreement directly
+        between the customer and the handyman. Use of the site is subject to our
+        <a href="/terms.html">Terms &amp; Conditions</a>.
+      </p>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { el, money, qs, starsHtml, avatarEl, compressImage, getMe, renderAuthNav } from "/js/common.js";
+
+    let id = qs("id");
+    let token = qs("token");
+    const statsEl = document.getElementById("stats");
+    const profileEl = document.getElementById("profile");
+    const jobsEl = document.getElementById("jobs");
+
+    // Builds a "?token=" only when we have one (session-based access needs none).
+    const tokenQ = () => (token ? `?token=${encodeURIComponent(token)}` : "");
+
+    async function load() {
+      renderAuthNav();
+      // No link token? Try a logged-in account that owns a handyman profile.
+      if (!id || !token) {
+        const me = await getMe();
+        if (me && me.handymanId) {
+          id = me.handymanId;
+          token = null;
+        } else if (!id || !token) {
+          return showLookup();
+        }
+      }
+      let data;
+      try {
+        const res = await fetch(`/api/handymen/${id}/jobs${tokenQ()}`);
+        if (!res.ok) return showLookup("That link doesn't look right. Please paste your full dashboard link, or log in.");
+        data = await res.json();
+      } catch {
+        return showLookup("Couldn't load your jobs. Is the server running?");
+      }
+      render(data);
+    }
+
+    function showLookup(msg) {
+      document.getElementById("lookup").style.display = "block";
+      if (msg) {
+        document.getElementById("lookupErr").innerHTML = "";
+        document.getElementById("lookupErr").append(el("div", { class: "notice error" }, msg));
+      }
+    }
+
+    document.getElementById("lookupForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const link = document.getElementById("link").value.trim();
+      try {
+        const u = new URL(link, location.origin);
+        const nid = u.searchParams.get("id");
+        const ntok = u.searchParams.get("token");
+        if (nid && ntok) { location = `/pro.html?id=${nid}&token=${ntok}`; return; }
+      } catch {}
+      showLookup("Please paste the full link, including the part after ?id=");
+    });
+
+    function renderProfile(h, editing = false) {
+      profileEl.innerHTML = "";
+      const card = el("div", { class: "card profile-card" });
+
+      if (!editing) {
+        const editBtn = el("button", { class: "btn secondary", style: "padding:8px 14px" }, "Edit");
+        editBtn.addEventListener("click", () => renderProfile(h, true));
+        card.append(el("div", { class: "phead" }, [
+          el("div", { style: "display:flex;align-items:center;gap:12px" }, [
+            avatarEl(h, "width:56px;height:56px"),
+            el("h2", { style: "margin:0;font-size:1.15rem" }, "My profile"),
+          ]),
+          editBtn,
+        ]));
+        card.append(el("p", { style: "color:var(--muted);margin:.3em 0 10px;font-size:.9rem" },
+          "This is what customers see when they view your profile."));
+        const rows = [
+          ["Name", h.name || "—"],
+          ["City", h.city || "—"],
+          ["Services", (h.services && h.services.length) ? h.services.join(", ") : "—"],
+          ["Hourly rate", h.hourlyRate ? `${money(h.hourlyRate)}/hr` : "Not set"],
+          ["Phone", h.phone || "—"],
+          ["Email", h.email || "—"],
+          ["About", h.bio || "—"],
+        ];
+        for (const [k, v] of rows) {
+          card.append(el("div", { class: "prow" }, [
+            el("span", { class: "k" }, k),
+            el("span", { class: "v" }, v),
+          ]));
+        }
+        profileEl.append(card);
+        return;
+      }
+
+      // --- Edit mode ---
+      card.append(el("h2", { style: "margin:0 0 10px;font-size:1.15rem" }, "Edit my profile"));
+      const form = el("form", { class: "edit-grid" });
+      const field = (label, input, hint) =>
+        el("div", { class: "field", style: "margin:0" }, [
+          el("label", {}, label),
+          input,
+          hint ? el("div", { class: "hint" }, hint) : null,
+        ]);
+
+      // --- Profile photo uploader ---
+      let preview = avatarEl(h, "width:72px;height:72px");
+      const fileIn = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", style: "display:none" });
+      const chooseBtn = el("button", { class: "btn secondary", type: "button", style: "padding:8px 14px" }, h.photoUrl ? "Change photo" : "Add photo");
+      const photoMsg = el("div", { class: "hint" }, "PNG, JPG, or WEBP. A square photo looks best.");
+      chooseBtn.addEventListener("click", () => fileIn.click());
+      fileIn.addEventListener("change", async () => {
+        const file = fileIn.files && fileIn.files[0];
+        if (!file) return;
+        chooseBtn.disabled = true;
+        chooseBtn.textContent = "Uploading…";
+        try {
+          const dataUrl = await compressImage(file, 512, 0.85);
+          const res = await fetch(`/api/handymen/${id}/photo${tokenQ()}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: dataUrl }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "Upload failed.");
+          h.photoUrl = out.photoUrl;
+          const fresh = avatarEl(h, "width:72px;height:72px");
+          preview.replaceWith(fresh);
+          preview = fresh;
+          chooseBtn.textContent = "Change photo";
+          photoMsg.className = "hint";
+          photoMsg.textContent = "Photo updated ✓";
+        } catch (ex) {
+          photoMsg.className = "notice error";
+          photoMsg.textContent = ex.message;
+          chooseBtn.textContent = h.photoUrl ? "Change photo" : "Add photo";
+        } finally {
+          chooseBtn.disabled = false;
+          fileIn.value = "";
+        }
+      });
+      const photoRow = el("div", { style: "display:flex;align-items:center;gap:14px" }, [
+        preview,
+        el("div", {}, [chooseBtn, photoMsg]),
+        fileIn,
+      ]);
+
+      const nameIn = el("input", { class: "input", value: h.name || "" });
+      const cityIn = el("input", { class: "input", value: h.city || "" });
+      const servicesIn = el("input", { class: "input", value: (h.services || []).join(", "), placeholder: "Plumbing, Carpentry, Painting" });
+      const rateIn = el("input", { class: "input", type: "number", min: "1", step: "1", value: h.hourlyRate ?? "" });
+      const phoneIn = el("input", { class: "input", value: h.phone || "" });
+      const bioIn = el("textarea", { class: "input", rows: "3" }, h.bio || "");
+
+      form.append(photoRow);
+      form.append(field("Name", nameIn));
+      form.append(el("div", { class: "row2" }, [
+        field("City", cityIn),
+        field("Hourly rate (USD)", rateIn, "Leave blank for flat-price only"),
+      ]));
+      form.append(field("Services", servicesIn, "Separate with commas"));
+      form.append(field("Phone", phoneIn));
+      form.append(field("About you", bioIn));
+
+      const err = el("div", {});
+      const save = el("button", { class: "btn block", type: "submit" }, "Save changes");
+      const cancel = el("button", { class: "btn secondary block", type: "button", style: "margin-top:8px" }, "Cancel");
+      cancel.addEventListener("click", () => renderProfile(h, false));
+      form.append(err, save, cancel);
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        err.innerHTML = "";
+        save.disabled = true;
+        save.textContent = "Saving…";
+        try {
+          const res = await fetch(`/api/handymen/${id}/profile${tokenQ()}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: nameIn.value,
+              city: cityIn.value,
+              services: servicesIn.value,
+              hourlyRate: rateIn.value,
+              phone: phoneIn.value,
+              bio: bioIn.value,
+            }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "Couldn't save.");
+          load();
+        } catch (ex) {
+          err.append(el("div", { class: "notice error" }, ex.message));
+          save.disabled = false;
+          save.textContent = "Save changes";
+        }
+      });
+
+      card.append(form);
+      profileEl.append(card);
+    }
+
+    let dangerReady = false;
+    function setupDangerZone() {
+      const danger = document.getElementById("danger");
+      danger.style.display = "block";
+      if (dangerReady) return;
+      dangerReady = true;
+      const link = document.getElementById("deleteAccount");
+      const msg = document.getElementById("deleteMsg");
+      link.addEventListener("click", async (e) => {
+        e.preventDefault();
+        msg.innerHTML = "";
+        const ok = window.confirm(
+          "Delete your account permanently?\n\nThis removes your profile, login, and photo. Customers will no longer be able to find or hire you. This cannot be undone."
+        );
+        if (!ok) return;
+        link.style.pointerEvents = "none";
+        link.textContent = "Deleting…";
+        try {
+          const res = await fetch(`/api/handymen/${id}${tokenQ()}`, { method: "DELETE" });
+          const out = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(out.error || "Couldn't delete your account.");
+          alert("Your account has been deleted. Take care!");
+          location.href = "/";
+        } catch (ex) {
+          msg.innerHTML = "";
+          msg.append(el("div", { class: "notice error", style: "text-align:left;margin-top:10px" }, ex.message));
+          link.style.pointerEvents = "auto";
+          link.textContent = "Delete my account";
+        }
+      });
+    }
+
+    function render(data) {
+      document.getElementById("title").textContent = `${data.handyman.name}'s jobs`;
+      const jobs = data.jobs;
+
+      const upcoming = jobs.filter((j) => j.status === "paid" || j.status === "work_done");
+      const completed = jobs.filter((j) => j.status === "completed");
+      const earned = completed.reduce((s, j) => s + (j.yourPayout || 0), 0);
+      const held = upcoming.reduce((s, j) => s + (j.yourPayout || 0), 0);
+
+      statsEl.style.display = "grid";
+      statsEl.innerHTML = "";
+      const rObj = data.handyman.rating || { average: null, count: 0 };
+      const cards = [
+        ["To do", String(upcoming.length)],
+        ["Completed", String(completed.length)],
+        ["Paid out to you", money(earned)],
+        ["Held (pending release)", money(held)],
+        ["Rating", rObj.count ? `${rObj.average}★ (${rObj.count})` : "—"],
+      ];
+      for (const [lbl, val] of cards) {
+        statsEl.append(el("div", { class: "stat card" }, [
+          el("div", { class: "big" }, val),
+          el("div", { class: "lbl" }, lbl),
+        ]));
+      }
+
+      renderProfile(data.handyman);
+      setupDangerZone();
+
+      jobsEl.innerHTML = "";
+      if (!data.handyman.ready) {
+        jobsEl.append(el("div", { class: "notice warn" },
+          "Finish your Stripe payout setup so customers can hire you."));
+      }
+      if (!jobs.length) {
+        jobsEl.append(el("div", { class: "empty" }, "No bookings yet. Share your profile to get hired!"));
+        return;
+      }
+
+      for (const j of jobs) {
+        const badge = j.status === "completed"
+          ? el("span", { class: "badge completed" }, "✓ Completed & paid")
+          : j.status === "work_done"
+          ? el("span", { class: "badge pending" }, "Awaiting customer release")
+          : el("span", { class: "badge paid" }, "Booked — to do");
+
+        const contact = el("div", { class: "contact" }, [
+          el("div", { class: "row" }, [el("span", {}, "Customer"), el("strong", {}, j.customer.name || "—")]),
+          j.customer.phone ? el("div", { class: "row" }, [el("span", {}, "Phone"), el("a", { href: `tel:${j.customer.phone}` }, j.customer.phone)]) : null,
+          j.customer.email ? el("div", { class: "row" }, [el("span", {}, "Email"), el("a", { href: `mailto:${j.customer.email}` }, j.customer.email)]) : null,
+        ]);
+
+        const card = el("div", { class: "card job", style: "margin-bottom:14px" }, [
+          el("div", { class: "head" }, [el("div", { class: "svc" }, j.service || "Job"), badge]),
+          j.scheduledFor ? el("div", { style: "color:var(--muted);font-size:.9rem" }, `Preferred date: ${j.scheduledFor}`) : null,
+          j.description ? el("p", { style: "margin:8px 0 0" }, j.description) : null,
+          contact,
+          el("div", { class: "hm-meta" }, [
+            el("div", { class: "rate" }, [money(j.yourPayout), el("span", {}, j.status === "completed" ? " paid to you" : " (held in escrow)")]),
+            el("div", { style: "color:var(--muted);font-size:.85rem" }, `Job ${money(j.jobAmount)} · ${money(j.commission)} fee`),
+          ]),
+        ]);
+
+        if (typeof j.rating === "number") {
+          card.append(el("div", { class: "contact", style: "background:#fff9ee;border-color:#eadfc4" }, [
+            el("div", { style: "display:flex;align-items:center;gap:8px" }, [
+              el("span", { html: starsHtml(j.rating) }),
+              el("strong", {}, `${j.rating}/5`),
+            ]),
+            j.reviewNote ? el("p", { style: "margin:6px 0 0" }, `\u201c${j.reviewNote}\u201d`) : null,
+          ]));
+        }
+
+        if (j.status === "paid") {
+          const btn = el("button", { class: "btn secondary", style: "margin-top:12px" }, "Mark work as done");
+          btn.addEventListener("click", async () => {
+            btn.disabled = true;
+            btn.textContent = "Saving…";
+            const res = await fetch(`/api/handymen/${id}/jobs/${j.id}/work-done`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token }),
+            });
+            if (res.ok) { load(); }
+            else { btn.disabled = false; btn.textContent = "Mark work as done"; }
+          });
+          card.append(btn);
+        } else if (j.status === "work_done") {
+          card.append(el("div", { class: "notice info", style: "margin-top:12px" },
+            "You marked this done. Waiting for the customer to confirm and release your payment."));
+        }
+
+        jobsEl.append(card);
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

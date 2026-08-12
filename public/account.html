@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My bookings — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+  <style>
+    .booking { text-align:left; display:flex; gap:12px; align-items:center; }
+    .booking .grow { flex:1; }
+    .booking .svc { font-weight:800; }
+    .booking .meta { color:var(--muted); font-size:.88rem; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links" id="authNav"></nav>
+    </div>
+  </header>
+
+  <main class="container center-narrow">
+    <div class="page-head"><a class="back" href="/">← Home</a></div>
+    <h1 id="title" style="margin:.2em 0">My bookings</h1>
+    <p style="color:var(--muted)" id="subtitle">All the jobs you've booked, in one place.</p>
+    <div id="list"><div class="skeleton">Loading…</div></div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { el, money, qs, starsHtml, avatarEl, getMe, renderAuthNav } from "/js/common.js";
+
+    const list = document.getElementById("list");
+
+    const STATUS = {
+      paid: { label: "Booked — payment held", cls: "paid" },
+      work_done: { label: "Work done — release payment", cls: "pending" },
+      completed: { label: "Completed", cls: "completed" },
+    };
+
+    async function run() {
+      const user = await getMe();
+      if (!user) {
+        location.href = `/login.html?next=${encodeURIComponent("/account.html")}`;
+        return;
+      }
+      renderAuthNav();
+      document.getElementById("subtitle").textContent =
+        `Signed in as ${user.email || user.name}. All the jobs you've booked, in one place.`;
+
+      const res = await fetch("/api/my/bookings");
+      const data = await res.json();
+      list.innerHTML = "";
+
+      if (!data.bookings || !data.bookings.length) {
+        list.append(el("div", { class: "empty" }, [
+          el("p", {}, "You haven't booked any jobs yet."),
+          el("a", { class: "btn", href: "/" }, "Find a handyman"),
+        ]));
+        return;
+      }
+
+      for (const b of data.bookings) {
+        const st = STATUS[b.status] || { label: b.status, cls: "paid" };
+        const manageUrl = `/job.html?id=${b.id}&token=${b.token}`;
+        list.append(el("a", { class: "card booking link", href: manageUrl, style: "margin-bottom:12px" }, [
+          avatarEl({ name: b.handymanName, photoUrl: b.handymanPhoto }, "width:46px;height:46px;font-size:1rem"),
+          el("div", { class: "grow" }, [
+            el("div", { class: "svc" }, b.service || "Job"),
+            el("div", { class: "meta" }, `${b.handymanName} · ${money(b.totalCharged)}${b.scheduledFor ? " · " + b.scheduledFor : ""}`),
+            typeof b.rating === "number"
+              ? el("div", { style: "margin-top:2px", html: starsHtml(b.rating) })
+              : el("span", { class: `badge ${st.cls}`, style: "margin-top:4px;display:inline-block" }, st.label),
+          ]),
+          el("span", { style: "color:var(--muted)" }, "›"),
+        ]));
+      }
+    }
+
+    run().catch((e) => {
+      list.innerHTML = "";
+      list.append(el("div", { class: "notice error" }, "Couldn't load your bookings."));
+      console.error(e);
+    });
+  </script>
+</body>
+</html>

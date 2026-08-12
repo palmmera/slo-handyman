@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Log in — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><a href="/">Find a handyman</a></nav>
+    </div>
+  </header>
+
+  <main class="container center-narrow">
+    <div class="page-head"><a class="back" href="/">← Home</a></div>
+    <h1 id="title" style="margin:.2em 0">Welcome back</h1>
+    <p id="subtitle" style="color:var(--muted)">Log in to manage your bookings.</p>
+
+    <div class="form-card">
+      <div class="auth-tabs">
+        <button id="tabLogin" class="active" type="button">Log in</button>
+        <button id="tabSignup" type="button">Create account</button>
+      </div>
+
+      <div id="socialArea" style="display:none">
+        <div id="googleBtnWrap" style="display:none;justify-content:center;margin-bottom:10px"></div>
+        <button id="appleBtn" class="btn social apple block" type="button" style="display:none"></button>
+        <div class="auth-divider">or with email</div>
+      </div>
+
+      <div id="msg"></div>
+
+      <!-- LOGIN -->
+      <form id="loginForm">
+        <div class="field">
+          <label>Email</label>
+          <input class="input" type="email" name="email" placeholder="you@email.com" required autocomplete="email" />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input class="input" type="password" name="password" placeholder="Your password" required autocomplete="current-password" />
+        </div>
+        <button class="btn block big" type="submit">Log in</button>
+      </form>
+
+      <!-- SIGNUP -->
+      <form id="signupForm" style="display:none">
+        <div class="role-toggle" id="roleToggle">
+          <label><input type="radio" name="role" value="customer" checked /><span>I'm a customer</span></label>
+          <label><input type="radio" name="role" value="handyman" /><span>I'm a handyman</span></label>
+        </div>
+
+        <div id="handymanNote" class="notice info" style="display:none">
+          Handymen set up their profile and payouts on the join page.
+          <a href="/join.html"><strong>Continue to handyman sign-up →</strong></a>
+        </div>
+
+        <div id="customerFields">
+          <div class="field">
+            <label>Full name</label>
+            <input class="input" name="name" placeholder="Jane Doe" autocomplete="name" />
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input class="input" type="email" name="email" placeholder="you@email.com" autocomplete="email" />
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input class="input" type="password" name="password" placeholder="At least 8 characters" autocomplete="new-password" />
+          </div>
+          <div class="field">
+            <label>Phone (optional)</label>
+            <input class="input" type="tel" name="phone" placeholder="(805) 555-0123" autocomplete="tel" />
+          </div>
+          <div class="field">
+            <label>ZIP code (optional)</label>
+            <input class="input" name="zip" placeholder="93401" inputmode="numeric" />
+            <div class="hint">Helps us show handymen near you.</div>
+          </div>
+          <div class="field">
+            <label>Preferred contact method</label>
+            <select class="input" name="preferredContact">
+              <option value="">No preference</option>
+              <option value="text">Text message</option>
+              <option value="call">Phone call</option>
+              <option value="email">Email</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>How did you hear about us? (optional)</label>
+            <input class="input" name="referral" placeholder="Friend, Google, Instagram…" />
+          </div>
+          <button class="btn block big" type="submit">Create my account</button>
+          <p class="hint" style="text-align:center;margin-top:10px">
+            By creating an account you agree to our <a href="/terms.html">Terms &amp; Conditions</a>.
+          </p>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { getConfig, el, qs } from "/js/common.js";
+
+    const nextUrl = qs("next") || "/";
+    const msg = document.getElementById("msg");
+    const loginForm = document.getElementById("loginForm");
+    const signupForm = document.getElementById("signupForm");
+    const tabLogin = document.getElementById("tabLogin");
+    const tabSignup = document.getElementById("tabSignup");
+    const handymanNote = document.getElementById("handymanNote");
+    const customerFields = document.getElementById("customerFields");
+    let cfg;
+
+    function showMsg(text, kind = "error") {
+      msg.innerHTML = "";
+      msg.append(el("div", { class: `notice ${kind}` }, text));
+    }
+
+    function setMode(mode) {
+      const login = mode !== "signup";
+      loginForm.style.display = login ? "block" : "none";
+      signupForm.style.display = login ? "none" : "block";
+      tabLogin.classList.toggle("active", login);
+      tabSignup.classList.toggle("active", !login);
+      document.getElementById("title").textContent = login ? "Welcome back" : "Create your account";
+      document.getElementById("subtitle").textContent = login
+        ? "Log in to manage your bookings."
+        : "Save your info and track all your bookings in one place.";
+      msg.innerHTML = "";
+    }
+
+    tabLogin.addEventListener("click", () => setMode("login"));
+    tabSignup.addEventListener("click", () => setMode("signup"));
+
+    // Handyman signups go through the join page (needs Stripe + profile).
+    document.getElementById("roleToggle").addEventListener("change", (e) => {
+      const isHandyman = e.target.value === "handyman";
+      handymanNote.style.display = isHandyman ? "block" : "none";
+      customerFields.style.display = isHandyman ? "none" : "block";
+    });
+
+    function currentRole() {
+      const r = signupForm.querySelector('input[name="role"]:checked');
+      return r ? r.value : "customer";
+    }
+
+    // Smart redirect: handymen without a profile finish sign-up on the join
+    // page; handymen with a profile go to their dashboard; customers go to next.
+    function finish(user) {
+      if (user && user.role === "handyman" && !user.handymanId) {
+        window.location = "/join.html";
+        return;
+      }
+      if (user && user.role === "handyman") {
+        window.location = nextUrl && nextUrl !== "/" ? nextUrl : "/pro.html";
+        return;
+      }
+      window.location = nextUrl || "/";
+    }
+
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(loginForm).entries());
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || "Login failed.");
+        finish(out.user);
+      } catch (err) {
+        showMsg(err.message);
+      }
+    });
+
+    signupForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(signupForm).entries());
+      body.role = "customer";
+      try {
+        const res = await fetch("/api/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || "Sign-up failed.");
+        finish(out.user);
+      } catch (err) {
+        showMsg(err.message);
+      }
+    });
+
+    // --- Social sign-in (only shown when configured) ---
+    async function initSocial() {
+      cfg = await getConfig();
+      const socialArea = document.getElementById("socialArea");
+      let any = false;
+
+      if (cfg.googleClientId) {
+        any = true;
+        const wrap = document.getElementById("googleBtnWrap");
+        wrap.style.display = "flex";
+        await loadScript("https://accounts.google.com/gsi/client");
+        /* global google */
+        google.accounts.id.initialize({
+          client_id: cfg.googleClientId,
+          callback: async (resp) => {
+            try {
+              const res = await fetch("/api/auth/google", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ credential: resp.credential, role: currentRole() }),
+              });
+              const out = await res.json();
+              if (!res.ok) throw new Error(out.error || "Google sign-in failed.");
+              finish(out.user);
+            } catch (err) {
+              showMsg(err.message);
+            }
+          },
+        });
+        google.accounts.id.renderButton(wrap, { theme: "outline", size: "large", width: 320 });
+      }
+
+      if (cfg.appleClientId) {
+        any = true;
+        const appleBtn = document.getElementById("appleBtn");
+        appleBtn.style.display = "flex";
+        appleBtn.textContent = " Continue with Apple";
+        await loadScript("https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js");
+        /* global AppleID */
+        AppleID.auth.init({
+          clientId: cfg.appleClientId,
+          scope: "name email",
+          redirectURI: location.origin + "/login.html",
+          usePopup: true,
+        });
+        appleBtn.addEventListener("click", async () => {
+          try {
+            const data = await AppleID.auth.signIn();
+            const res = await fetch("/api/auth/apple", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id_token: data.authorization.id_token,
+                user: data.user,
+                role: currentRole(),
+              }),
+            });
+            const out = await res.json();
+            if (!res.ok) throw new Error(out.error || "Apple sign-in failed.");
+            finish(out.user);
+          } catch (err) {
+            if (err && err.error === "popup_closed_by_user") return;
+            showMsg("Apple sign-in was cancelled or failed.");
+          }
+        });
+      }
+
+      if (any) socialArea.style.display = "block";
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+
+    // Init
+    if ((qs("mode") || "login") === "signup") setMode("signup");
+    initSocial().catch(console.error);
+  </script>
+</body>
+</html>

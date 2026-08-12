@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Owner dashboard — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+  <style>
+    table { width:100%; border-collapse: collapse; background:#fff; border-radius: var(--radius); overflow:hidden; box-shadow: var(--shadow); }
+    th, td { text-align:left; padding: 12px 14px; border-bottom:1px solid var(--line); font-size:.92rem; }
+    th { background:#f2f5fa; color:#41506a; font-weight:700; }
+    .stat { background:#fff; border:1px solid var(--line); border-radius: var(--radius); padding:18px; box-shadow: var(--shadow); }
+    .stat .big { font-size:1.8rem; font-weight:800; }
+    .stat .lbl { color:var(--muted); font-size:.85rem; }
+    .status-paid { color: var(--green); font-weight:700; }
+    .status-pending { color: var(--muted); }
+    .table-wrap { overflow-x:auto; }
+    .req { background:#fff; border:1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding:16px 18px; margin-bottom:12px; }
+    .req.new { border-left:4px solid var(--brand); }
+    .req .top { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:baseline; }
+    .req .who { font-weight:800; }
+    .req .when { color:var(--muted); font-size:.85rem; }
+    .req .desc { margin:8px 0; white-space:pre-wrap; }
+    .req .meta { color:#41506a; font-size:.9rem; display:flex; gap:14px; flex-wrap:wrap; }
+    .req .meta b { color:var(--ink); }
+    .req .actions { margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; }
+    .req .badge { font-size:.78rem; padding:3px 10px; border-radius:999px; font-weight:700; }
+    .badge.b-new { background:#eef4ff; color:#1a4fb0; }
+    .badge.b-contacted { background:#fff6e6; color:#8a5a00; }
+    .badge.b-closed { background:#eef0f3; color:#586074; }
+    .req-count { font-size:.9rem; color:var(--muted); font-weight:600; }
+    .btn.tiny { padding:6px 12px; font-size:.85rem; }
+    .btn.ghost { background:#fff; color:var(--ink); border:1.5px solid var(--line); }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><span style="font-weight:700">Owner dashboard</span></nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="login" class="center-narrow" style="padding-top:30px">
+      <h1>Owner dashboard</h1>
+      <p style="color:var(--muted)">Enter your admin password (the <code>ADMIN_TOKEN</code> from your .env file).</p>
+      <form id="loginForm" class="form-card">
+        <div class="field">
+          <label>Admin password</label>
+          <input class="input" type="password" id="token" placeholder="••••••••" />
+        </div>
+        <button class="btn block" type="submit">View dashboard</button>
+        <div id="loginErr"></div>
+      </form>
+    </div>
+
+    <div id="dash" style="display:none">
+      <div class="page-head"><h1 style="margin:0">Your earnings</h1></div>
+      <div class="grid" id="stats" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+
+      <section class="section">
+        <h2>Job requests <span id="reqCount" class="req-count"></span></h2>
+        <p style="color:var(--muted);margin-top:-6px">Leads from the "Describe your job" form. Reach out, then mark them contacted or closed.</p>
+        <div id="requestsList"></div>
+      </section>
+
+      <section class="section">
+        <h2>Jobs</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Handyman</th><th>Customer</th><th>Service</th><th>Job</th><th>Your cut</th><th>Status</th></tr>
+            </thead>
+            <tbody id="jobsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="disclaimer">
+        SLO Handyman is a booking platform that connects customers with independent local handymen.
+        We are not the handyman and do not perform the work. We are not responsible for the quality of
+        any job, property damage, injuries, or unpaid amounts — every job is an agreement directly
+        between the customer and the handyman. Use of the site is subject to our
+        <a href="/terms.html">Terms &amp; Conditions</a>.
+      </p>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { el, money } from "/js/common.js";
+
+    const loginForm = document.getElementById("loginForm");
+    const loginErr = document.getElementById("loginErr");
+    let adminToken = "";
+
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginErr.innerHTML = "";
+      const token = document.getElementById("token").value;
+      const res = await fetch(`/api/admin/data?token=${encodeURIComponent(token)}`);
+      if (!res.ok) {
+        loginErr.append(el("div", { class: "notice error" }, "Wrong password. Try again."));
+        return;
+      }
+      adminToken = token;
+      const data = await res.json();
+      render(data);
+    });
+
+    async function refresh() {
+      const res = await fetch(`/api/admin/data?token=${encodeURIComponent(adminToken)}`);
+      if (res.ok) render(await res.json());
+    }
+
+    async function setRequestStatus(id, status) {
+      await fetch(`/api/admin/requests/${id}/status?token=${encodeURIComponent(adminToken)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      await refresh();
+    }
+
+    function renderRequests(requests) {
+      const host = document.getElementById("requestsList");
+      const countEl = document.getElementById("reqCount");
+      host.innerHTML = "";
+      const openCount = requests.filter((r) => r.status !== "closed").length;
+      countEl.textContent = openCount ? `· ${openCount} open` : "";
+
+      if (!requests.length) {
+        host.append(el("div", { class: "empty" }, el("p", {}, "No job requests yet.")));
+        return;
+      }
+      for (const r of requests) {
+        const contact = [
+          r.phone ? `📞 ${r.phone}` : null,
+          r.email ? `✉️ ${r.email}` : null,
+        ].filter(Boolean).join("   ");
+        const metaBits = [];
+        if (r.category) metaBits.push(el("span", {}, [el("b", {}, "Category: "), r.category]));
+        if (r.area) metaBits.push(el("span", {}, [el("b", {}, "Area: "), r.area]));
+        if (r.timing) metaBits.push(el("span", {}, [el("b", {}, "When: "), r.timing]));
+        if (r.budget) metaBits.push(el("span", {}, [el("b", {}, "Budget: "), r.budget]));
+
+        const actions = [];
+        if (r.status !== "contacted")
+          actions.push(el("button", { class: "btn tiny", onclick: () => setRequestStatus(r.id, "contacted") }, "Mark contacted"));
+        if (r.status !== "closed")
+          actions.push(el("button", { class: "btn tiny ghost", onclick: () => setRequestStatus(r.id, "closed") }, "Close"));
+        if (r.status === "closed")
+          actions.push(el("button", { class: "btn tiny ghost", onclick: () => setRequestStatus(r.id, "new") }, "Reopen"));
+
+        host.append(el("div", { class: `req ${r.status === "new" ? "new" : ""}` }, [
+          el("div", { class: "top" }, [
+            el("div", {}, [
+              el("span", { class: "who" }, r.name || "Someone"),
+              el("span", { class: `badge b-${r.status}`, style: "margin-left:10px" }, r.status),
+            ]),
+            el("span", { class: "when" }, new Date(r.date).toLocaleString()),
+          ]),
+          el("div", { class: "desc" }, r.description || ""),
+          el("div", { class: "meta" }, metaBits.length ? metaBits : [el("span", { style: "color:var(--muted)" }, "No extra details")]),
+          el("div", { class: "meta", style: "margin-top:6px" }, el("span", {}, contact || "No contact provided")),
+          el("div", { class: "actions" }, actions),
+        ]));
+      }
+    }
+
+    function render(data) {
+      document.getElementById("login").style.display = "none";
+      document.getElementById("dash").style.display = "block";
+
+      const stats = document.getElementById("stats");
+      stats.innerHTML = "";
+      const cards = [
+        ["Total earnings", money(data.totals.earnings)],
+        ["Booking fees", money(data.totals.bookingFees)],
+        ["Commission", money(data.totals.commission)],
+        ["Jobs paid", String(data.totals.jobsPaid)],
+      ];
+      for (const [lbl, val] of cards) {
+        stats.append(el("div", { class: "stat" }, [
+          el("div", { class: "big" }, val),
+          el("div", { class: "lbl" }, lbl),
+        ]));
+      }
+
+      renderRequests(data.requests || []);
+
+      const body = document.getElementById("jobsBody");
+      body.innerHTML = "";
+      if (!data.jobs.length) {
+        body.append(el("tr", {}, el("td", { colspan: "7", style: "text-align:center;color:var(--muted)" }, "No jobs yet.")));
+      }
+      for (const j of data.jobs) {
+        body.append(el("tr", {}, [
+          el("td", {}, new Date(j.date).toLocaleDateString()),
+          el("td", {}, j.handymanName || "—"),
+          el("td", {}, j.customerName || "—"),
+          el("td", {}, j.service || "—"),
+          el("td", {}, money(j.jobAmount)),
+          el("td", {}, money(j.yourEarnings)),
+          el("td", {}, el("span", { class: ["paid", "work_done", "completed"].includes(j.status) ? "status-paid" : "status-pending" },
+            j.status === "completed" ? "Completed (paid out)" : j.status === "work_done" ? "Work done — held" : j.status === "paid" ? "Booked — held" : "Pending")),
+        ]));
+      }
+    }
+  </script>
+</body>
+</html>

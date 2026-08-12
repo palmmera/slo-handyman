@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SLO Handyman — Hire trusted handymen in San Luis Obispo</title>
+  <meta name="description" content="Find and hire trusted local handymen in San Luis Obispo. Book and pay securely online." />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/">
+        <img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" />
+      </a>
+      <nav class="nav-links">
+        <a class="hide-sm" href="#how">How it works</a>
+        <a href="/join.html">Become a handyman</a>
+        <span id="authNav"></span>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero-wrap">
+      <div class="hero container">
+        <img class="hero-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo — Repairs, Upgrades, Home Projects" />
+        <h1>Trusted local handymen,<br />one tap away.</h1>
+        <p>Browse skilled handymen in SLO, book the job, and pay securely online. No phone tag, no cash runs.</p>
+        <div class="cta-row">
+          <a class="btn big" href="#browse">Find a handyman</a>
+          <a class="btn secondary big" href="/join.html">I'm a handyman</a>
+        </div>
+
+        <div class="cat-row">
+          <a class="cat-tile" href="/?service=Painting#browse"><img src="/img/categories/painting.png" alt="Painting" /><span class="cat-label">Painting</span></a>
+          <a class="cat-tile" href="/?service=Plumbing#browse"><img src="/img/categories/plumbing.png" alt="Plumbing" /><span class="cat-label">Plumbing</span></a>
+          <a class="cat-tile" href="/?service=Electrical#browse"><img src="/img/categories/electrical.png" alt="Electrical" /><span class="cat-label">Electrical</span></a>
+          <a class="cat-tile" href="/?service=Installation#browse"><img src="/img/categories/installation.png" alt="Installation" /><span class="cat-label">Installation</span></a>
+          <a class="cat-tile" href="/?service=Repairs#browse"><img src="/img/categories/repairs.png" alt="Repairs" /><span class="cat-label">Repairs</span></a>
+          <a class="cat-tile" href="/?service=Moving#browse"><img src="/img/categories/moving.png" alt="Moving" /><span class="cat-label">Moving</span></a>
+          <a class="cat-tile" href="/?service=Pressure Washing#browse"><img src="/img/categories/pressure.png" alt="Pressure Washing" /><span class="cat-label">Pressure Washing</span></a>
+          <!-- "Other" / Describe-your-job flow is built but hidden for now. Re-enable this tile to turn it back on:
+          <a class="cat-tile" href="/describe.html"><img src="/img/categories/other.png" alt="Other" /><span class="cat-label">Other</span></a>
+          -->
+
+        </div>
+      </div>
+    </section>
+
+    <section id="browse" class="section container">
+      <h2>Available handymen</h2>
+      <p class="sub">Pick someone, tell them about the job, and pay when you book.</p>
+      <div id="filterBar" class="filter-bar"></div>
+      <div id="list" class="grid">
+        <div class="skeleton">Loading handymen…</div>
+      </div>
+    </section>
+
+    <section id="how" class="section container">
+      <h2>How it works</h2>
+      <p class="sub">Simple and safe for everyone.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="num">1</div>
+          <strong>Choose a handyman</strong>
+          <p class="sub" style="margin:6px 0 0">Browse local pros and their services.</p>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <strong>Describe the job</strong>
+          <p class="sub" style="margin:6px 0 0">Add details and the agreed price.</p>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <strong>Pay securely</strong>
+          <p class="sub" style="margin:6px 0 0">A small <span id="feeInline">$5</span> booking fee is added at checkout.</p>
+        </div>
+        <div class="step">
+          <div class="num">4</div>
+          <strong>Get it done</strong>
+          <p class="sub" style="margin:6px 0 0">Your handyman is paid out automatically.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="disclaimer">
+        SLO Handyman is a booking platform that connects customers with independent local handymen.
+        We are not the handyman and do not perform the work. We are not responsible for the quality of
+        any job, property damage, injuries, or unpaid amounts — every job is an agreement directly
+        between the customer and the handyman. Use of the site is subject to our
+        <a href="/terms.html">Terms &amp; Conditions</a>.
+      </p>
+      <div>
+        SLO Handyman — serving San Luis Obispo, CA ·
+        <a href="/join.html">Become a handyman</a> ·
+        <a href="/terms.html">Terms &amp; Conditions</a>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { getConfig, avatarEl, el, money, starsHtml, renderAuthNav } from "/js/common.js";
+    renderAuthNav();
+
+    const list = document.getElementById("list");
+
+    async function load() {
+      const [config, handymen] = await Promise.all([
+        getConfig(),
+        fetch("/api/handymen").then((r) => r.json()),
+      ]);
+
+      document.getElementById("feeInline").textContent = money(config.bookingFee);
+
+      if (!config.stripeConfigured) {
+        const banner = el("div", { class: "notice warn" },
+          "Setup needed: add your Stripe keys to the .env file to enable hiring and payouts.");
+        list.parentElement.insertBefore(banner, list);
+      }
+
+      // Optional category filter from the hero tiles (?service=Painting).
+      const service = new URLSearchParams(location.search).get("service");
+      const heading = document.querySelector("#browse h2");
+      const filterHost = document.getElementById("filterBar");
+      filterHost.innerHTML = "";
+      if (service) {
+        const tile = document.querySelector(`.cat-tile[href*="service=${service}"]`);
+        if (tile) tile.classList.add("active");
+        heading.textContent = `${service} handymen`;
+        filterHost.append(el("div", { class: "filter-chip" }, [
+          el("span", {}, `Filtered by: ${service}`),
+          el("a", { href: "/#browse", title: "Clear filter" }, "✕"),
+        ]));
+      }
+
+      const shown = service
+        ? handymen.filter((h) =>
+            (h.services || []).some((s) => s.toLowerCase().includes(service.toLowerCase()))
+          )
+        : handymen;
+
+      list.innerHTML = "";
+      if (!handymen.length) {
+        list.append(el("div", { class: "empty" }, [
+          el("p", {}, "No handymen have joined yet."),
+          el("a", { class: "btn", href: "/join.html" }, "Be the first to join"),
+        ]));
+        return;
+      }
+      if (!shown.length) {
+        list.append(el("div", { class: "empty" }, [
+          el("p", {}, `No handymen offer ${service} yet.`),
+          el("a", { class: "btn secondary", href: "/#browse" }, "See all handymen"),
+        ]));
+        return;
+      }
+
+      for (const h of shown) {
+        const av = avatarEl(h);
+
+        const tags = el("div", { class: "tags" },
+          (h.services || []).slice(0, 4).map((s) => el("span", { class: "tag" }, s)));
+
+        const badge = h.ready
+          ? el("span", { class: "badge ready" }, "✓ Ready to hire")
+          : el("span", { class: "badge pending" }, "Setting up");
+
+        const rate = h.hourlyRate
+          ? el("div", { class: "rate" }, [money(h.hourlyRate), el("span", {}, "/hr")])
+          : el("div", { class: "rate" }, [el("span", {}, "Rate on request")]);
+
+        const r = h.rating || { average: null, count: 0 };
+        const ratingLine = r.count
+          ? el("div", { class: "rating-line", style: "margin-top:6px" }, [
+              el("span", { html: starsHtml(r.average) }),
+              el("span", { class: "rating-count" }, `${r.average} (${r.count})`),
+            ])
+          : el("div", { class: "rating-none", style: "margin-top:6px" }, "New — no reviews yet");
+
+        const card = el("a", { class: "card link", href: `/handyman.html?id=${h.id}` }, [
+          el("div", { class: "hm-top" }, [
+            av,
+            el("div", {}, [
+              el("div", { class: "hm-name" }, h.name),
+              el("div", { class: "hm-city" }, `📍 ${h.city}`),
+              ratingLine,
+            ]),
+          ]),
+          tags,
+          el("div", { class: "hm-meta" }, [rate, badge]),
+        ]);
+        list.append(card);
+      }
+    }
+
+    load().catch((e) => {
+      list.innerHTML = "";
+      list.append(el("div", { class: "notice error" }, "Couldn't load handymen. Is the server running?"));
+      console.error(e);
+    });
+  </script>
+</body>
+</html>
