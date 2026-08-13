@@ -182,6 +182,136 @@ async function notifyHandymanNewBooking(job) {
   }
 }
 
+// Small helper so every email shares the same button look.
+function emailButton(url, label) {
+  return `<a href="${url}" style="background:#f5871f;color:#fff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:10px;display:inline-block">${escapeHtml(label)}</a>`;
+}
+
+function customerBookingUrl(job) {
+  return `${BASE_URL}/job.html?id=${job.id}&token=${job.reviewToken}`;
+}
+
+// Customer: their handyman accepted the job (contact details now shared).
+async function notifyCustomerAccepted(job) {
+  try {
+    if (!job.customerEmail) return;
+    const handyman = db.getHandyman(job.handymanId);
+    const name = job.handymanName || (handyman && handyman.name) || "Your handyman";
+    const link = customerBookingUrl(job);
+    const service = job.service || "your job";
+    const subject = `${name} accepted your booking`;
+
+    const contactLines = [];
+    if (handyman && handyman.phone) contactLines.push(`Phone: ${handyman.phone}`);
+    if (handyman && handyman.email) contactLines.push(`Email: ${handyman.email}`);
+
+    const text = [
+      `Hi ${job.customerName || "there"},`,
+      "",
+      `Good news — ${name} accepted your booking for "${service}". Your payment stays held safely until you release it after the work is done.`,
+      contactLines.length ? "" : null,
+      ...contactLines,
+      "",
+      "View your booking or release payment once you're happy with the work:",
+      link,
+      "",
+      "— SLO Handyman",
+    ].filter((l) => l !== null).join("\n");
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+        <h2 style="margin:0 0 8px">Your booking was accepted</h2>
+        <p style="margin:0 0 14px">Hi ${escapeHtml(job.customerName || "there")}, ${escapeHtml(name)} accepted your booking for <strong>${escapeHtml(service)}</strong>.</p>
+        ${(handyman && (handyman.phone || handyman.email)) ? `
+        <table style="width:100%;border-collapse:collapse;margin:0 0 18px">
+          ${handyman.phone ? `<tr><td style="padding:6px 0;color:#6b7280">Phone</td><td style="padding:6px 0;text-align:right;font-weight:700">${escapeHtml(handyman.phone)}</td></tr>` : ""}
+          ${handyman.email ? `<tr><td style="padding:6px 0;color:#6b7280">Email</td><td style="padding:6px 0;text-align:right;font-weight:700">${escapeHtml(handyman.email)}</td></tr>` : ""}
+        </table>` : ""}
+        <p style="margin:0 0 16px;color:#374151">Your payment stays held safely in escrow until you release it after the work is done.</p>
+        <p style="margin:0 0 22px">${emailButton(link, "View my booking")}</p>
+        <p style="margin:0;color:#9ca3af;font-size:13px">— SLO Handyman</p>
+      </div>`;
+
+    await sendEmail({ to: job.customerEmail, subject, text, html });
+  } catch (err) {
+    console.error("Accept notification failed:", err.message);
+  }
+}
+
+// Customer: the handyman declined and they were fully refunded.
+async function notifyCustomerDeclined(job) {
+  try {
+    if (!job.customerEmail) return;
+    const name = job.handymanName || "The handyman";
+    const service = job.service || "your job";
+    const refund = `$${(job.totalChargedCents / 100).toFixed(2)}`;
+    const subject = "Your booking was declined — full refund on the way";
+
+    const text = [
+      `Hi ${job.customerName || "there"},`,
+      "",
+      `Unfortunately ${name} couldn't take your booking for "${service}", so we've fully refunded your payment of ${refund}. Refunds usually appear within a few business days.`,
+      "",
+      "You're welcome to book another handyman anytime:",
+      `${BASE_URL}/`,
+      "",
+      "— SLO Handyman",
+    ].join("\n");
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+        <h2 style="margin:0 0 8px">Your booking was declined</h2>
+        <p style="margin:0 0 14px">Hi ${escapeHtml(job.customerName || "there")}, unfortunately ${escapeHtml(name)} couldn't take your booking for <strong>${escapeHtml(service)}</strong>.</p>
+        <p style="margin:0 0 16px;color:#374151">We've fully refunded your payment of <strong>${refund}</strong>. Refunds usually appear within a few business days.</p>
+        <p style="margin:0 0 22px">${emailButton(`${BASE_URL}/`, "Find another handyman")}</p>
+        <p style="margin:0;color:#9ca3af;font-size:13px">— SLO Handyman</p>
+      </div>`;
+
+    await sendEmail({ to: job.customerEmail, subject, text, html });
+  } catch (err) {
+    console.error("Decline notification failed:", err.message);
+  }
+}
+
+// Handyman: the customer released payment — money is on its way.
+async function notifyHandymanReleased(job) {
+  try {
+    const handyman = db.getHandyman(job.handymanId);
+    if (!handyman || !handyman.email) return;
+    const dashboardUrl = `${BASE_URL}/pro.html?id=${handyman.id}&token=${handyman.manageToken}`;
+    const payout = `$${(job.handymanPayoutCents / 100).toFixed(2)}`;
+    const service = job.service || "the job";
+    const subject = `Payment released — ${payout} on its way`;
+
+    const text = [
+      `Hi ${handyman.name || "there"},`,
+      "",
+      `Great news — the customer released payment for "${service}". Your payout of ${payout} is on its way to your connected account.`,
+      "",
+      "See your jobs and payouts:",
+      dashboardUrl,
+      "",
+      "— SLO Handyman",
+    ].join("\n");
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+        <h2 style="margin:0 0 8px">You got paid!</h2>
+        <p style="margin:0 0 14px">Hi ${escapeHtml(handyman.name || "there")}, the customer released payment for <strong>${escapeHtml(service)}</strong>.</p>
+        <table style="width:100%;border-collapse:collapse;margin:0 0 18px">
+          <tr><td style="padding:6px 0;color:#6b7280">Your payout</td><td style="padding:6px 0;text-align:right;font-weight:700">${payout}</td></tr>
+        </table>
+        <p style="margin:0 0 16px;color:#374151">It's on its way to your connected payout account.</p>
+        <p style="margin:0 0 22px">${emailButton(dashboardUrl, "View my jobs")}</p>
+        <p style="margin:0;color:#9ca3af;font-size:13px">— SLO Handyman</p>
+      </div>`;
+
+    await sendEmail({ to: handyman.email, subject, text, html });
+  } catch (err) {
+    console.error("Release notification failed:", err.message);
+  }
+}
+
 const app = express();
 
 // --- Stripe webhook (must be BEFORE express.json so we get the raw body) ---
@@ -661,6 +791,7 @@ app.post("/api/handymen/:id/jobs/:jobId/accept", (req, res) => {
     return res.status(400).json({ error: "Only new, unaccepted bookings can be accepted." });
   }
   const updated = db.updateJob(job.id, { status: "accepted", acceptedAt: Date.now() });
+  notifyCustomerAccepted(updated).catch((e) => console.error(e));
   res.json({ ok: true, status: updated.status });
 });
 
@@ -692,6 +823,7 @@ app.post("/api/handymen/:id/jobs/:jobId/decline", async (req, res) => {
   }
 
   const updated = db.updateJob(job.id, { status: "declined", declinedAt: Date.now() });
+  notifyCustomerDeclined(updated).catch((e) => console.error(e));
   res.json({ ok: true, status: updated.status });
 });
 
@@ -1166,6 +1298,7 @@ app.post("/api/jobs/:id/release", async (req, res) => {
       releasedAt: Date.now(),
       stripeTransferId: transfer.id,
     });
+    notifyHandymanReleased(updated).catch((e) => console.error(e));
     res.json({ ok: true, status: updated.status });
   } catch (err) {
     console.error(err);
