@@ -15,6 +15,11 @@
     .contact .row { display:flex; justify-content:space-between; padding:3px 0; }
     .stat .big { font-size:1.7rem; font-weight:800; }
     .stat .lbl { color:var(--muted); font-size:.85rem; }
+    .stat.clickable { cursor:pointer; position:relative; }
+    .stat.clickable:hover { border-color:var(--gold); transform:translateY(-2px); box-shadow:0 12px 30px rgba(24,40,72,.12); }
+    .stat.clickable .lbl::after { content:" \2193"; font-weight:700; color:var(--brand); }
+    @keyframes jobflash { 0%,100% { box-shadow:var(--shadow); } 30% { box-shadow:0 0 0 3px var(--gold); } }
+    .job.flash { animation: jobflash 1.4s ease; }
     .badge.completed { background:#e5f6ec; color:var(--green); }
     .badge.paid { background:#eef1f8; color:var(--brand); }
     .badge.declined { background:#fde8e8; color:#c0392b; }
@@ -413,10 +418,25 @@
         ["Rating", rObj.count ? `${rObj.average}★ (${rObj.count})` : "—"],
       ];
       for (const [lbl, val] of cards) {
-        statsEl.append(el("div", { class: "stat card" }, [
+        const statCard = el("div", { class: "stat card" }, [
           el("div", { class: "big" }, val),
           el("div", { class: "lbl" }, lbl),
-        ]));
+        ]);
+        // "New requests" jumps straight to the first pending booking so the
+        // handyman can accept/decline without scrolling down the page.
+        if (lbl === "New requests" && newRequests.length > 0) {
+          statCard.classList.add("clickable");
+          statCard.title = "Jump to your new requests";
+          statCard.addEventListener("click", () => {
+            const target = jobsEl.querySelector(".job.new-request");
+            if (!target) return;
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+            target.classList.remove("flash");
+            void target.offsetWidth;
+            target.classList.add("flash");
+          });
+        }
+        statsEl.append(statCard);
       }
 
       renderAvailability(data.handyman);
@@ -433,7 +453,15 @@
         return;
       }
 
-      for (const j of jobs) {
+      // Active jobs float to the top; finished/declined ones sink to the bottom.
+      const statusOrder = { paid: 0, accepted: 1, work_done: 2, declined: 3, completed: 4 };
+      const sortedJobs = [...jobs].sort((a, b) => {
+        const d = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
+        if (d !== 0) return d;
+        return (b.date || 0) - (a.date || 0);
+      });
+
+      for (const j of sortedJobs) {
         const badge = j.status === "completed"
           ? el("span", { class: "badge completed" }, "✓ Completed & paid")
           : j.status === "work_done"
@@ -472,6 +500,7 @@
         }
 
         if (j.status === "paid") {
+          card.classList.add("new-request");
           card.append(el("div", { class: "notice info", style: "margin-top:12px" },
             "New booking — the customer has already paid (held safely). Accept to take the job, or decline to fully refund them."));
 
@@ -555,7 +584,33 @@
             "You declined this job and the customer was refunded."));
         }
 
-        jobsEl.append(card);
+        // Completed jobs collapse into a compact row that expands on click.
+        if (j.status === "completed") {
+          card.style.display = "none";
+          card.style.marginTop = "10px";
+          card.style.marginBottom = "0";
+
+          const summary = el("button", { class: "job-summary", type: "button" }, [
+            el("div", { class: "js-left" }, [
+              el("span", { class: "js-check" }, "✓"),
+              el("span", { class: "js-svc" }, j.service || "Job"),
+              j.date ? el("span", { class: "js-date" }, new Date(j.date).toLocaleDateString()) : null,
+            ]),
+            el("div", { class: "js-right" }, [
+              typeof j.rating === "number" ? el("span", { html: starsHtml(j.rating) }) : null,
+              el("span", { class: "js-pay" }, `${money(j.yourPayout)} paid`),
+              el("span", { class: "js-chev" }, "⌄"),
+            ]),
+          ]);
+          summary.addEventListener("click", () => {
+            const open = card.style.display !== "none";
+            card.style.display = open ? "none" : "block";
+            summary.classList.toggle("open", !open);
+          });
+          jobsEl.append(el("div", { style: "margin-bottom:14px" }, [summary, card]));
+        } else {
+          jobsEl.append(card);
+        }
       }
     }
 

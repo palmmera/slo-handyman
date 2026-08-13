@@ -30,6 +30,158 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
 
+// --- Email -----------------------------------------------------------------
+// Two ways to send, tried in this order:
+//   1. Resend  (recommended)  — set RESEND_API_KEY (+ a verified MAIL_FROM domain)
+//   2. SMTP    (fallback)     — set SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS
+// If neither is set, mail is skipped (the app keeps working; it just logs).
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+
+const SMTP_HOST = process.env.SMTP_HOST || "";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER || "";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "slohandyman@smart-folder.com";
+
+// Friendly "from" for all outgoing mail. For Resend this MUST be an address on
+// a domain you've verified in Resend (e.g. "SLO Handyman <notifications@slohandyman.com>").
+const MAIL_FROM =
+  process.env.MAIL_FROM ||
+  (SMTP_USER ? `"SLO Handyman" <${SMTP_USER}>` : "SLO Handyman <notifications@slohandyman.com>");
+
+const smtpEnabled = !!(SMTP_HOST && SMTP_USER && SMTP_PASS);
+
+// Send via Resend's REST API (no SDK dependency needed).
+async function sendViaResend({ to, subject, text, html, replyTo }) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: MAIL_FROM,
+      to: [to],
+      subject,
+      text,
+      html,
+      ...(replyTo ? { reply_to: replyTo } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Resend ${res.status}: ${detail}`);
+  }
+  return true;
+}
+
+// Lazily create a single reusable SMTP transporter (fallback path).
+let _transporter = null;
+async function getTransporter() {
+  if (!smtpEnabled) return null;
+  if (_transporter) return _transporter;
+  const nodemailer = await import("nodemailer");
+  _transporter = nodemailer.default.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+  return _transporter;
+}
+
+async function sendViaSmtp({ to, subject, text, html, replyTo }) {
+  const transporter = await getTransporter();
+  if (!transporter) return false;
+  await transporter.sendMail({ from: MAIL_FROM, to, subject, text, html, replyTo });
+  return true;
+}
+
+// Best-effort send. Never throws, so webhooks/requests don't fail if mail does.
+// Prefers Resend; falls back to SMTP if Resend isn't configured or errors.
+async function sendEmail({ to, subject, text, html, replyTo }) {
+  if (!to) return false;
+
+  if (RESEND_API_KEY) {
+    try {
+      await sendViaResend({ to, subject, text, html, replyTo });
+      return true;
+    } catch (err) {
+      console.error("Resend send failed:", err.message);
+      // Fall through to SMTP if it's available.
+    }
+  }
+
+  if (smtpEnabled) {
+    try {
+      return await sendViaSmtp({ to, subject, text, html, replyTo });
+    } catch (err) {
+      console.error("SMTP send failed:", err.message);
+      return false;
+    }
+  }
+
+  console.log(`[email skipped — no email provider configured] to=${to} subject="${subject}"`);
+  return false;
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+// Emails the handyman that a new, already-paid booking is waiting. Kept
+// privacy-light on purpose: no customer contact details — just the service,
+// the amount, and a link to log in and accept or decline.
+async function notifyHandymanNewBooking(job) {
+  try {
+    const handyman = db.getHandyman(job.handymanId);
+    if (!handyman || !handyman.email) return;
+
+    const dashboardUrl = `${BASE_URL}/pro.html?id=${handyman.id}&token=${handyman.manageToken}`;
+    const service = job.service || "a handyman job";
+    const payout = `$${(job.handymanPayoutCents / 100).toFixed(2)}`;
+    const when = job.scheduledFor ? `Preferred date: ${job.scheduledFor}` : "";
+    const subject = "New job request — action needed";
+
+    const text = [
+      `Hi ${handyman.name || "there"},`,
+      "",
+      `You have a new job request for "${service}". The customer has already paid and the money is held safely in escrow until you respond.`,
+      when,
+      `Your payout if you accept: ${payout}`,
+      "",
+      "Log in to your dashboard to accept or decline:",
+      dashboardUrl,
+      "",
+      "Please respond soon so the customer isn't left waiting.",
+      "",
+      "— SLO Handyman",
+    ].filter(Boolean).join("\n");
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+        <h2 style="margin:0 0 8px">New job request</h2>
+        <p style="margin:0 0 14px">Hi ${escapeHtml(handyman.name || "there")}, you have a new booking waiting for you.</p>
+        <table style="width:100%;border-collapse:collapse;margin:0 0 18px">
+          <tr><td style="padding:6px 0;color:#6b7280">Service</td><td style="padding:6px 0;text-align:right;font-weight:700">${escapeHtml(service)}</td></tr>
+          ${job.scheduledFor ? `<tr><td style="padding:6px 0;color:#6b7280">Preferred date</td><td style="padding:6px 0;text-align:right;font-weight:700">${escapeHtml(job.scheduledFor)}</td></tr>` : ""}
+          <tr><td style="padding:6px 0;color:#6b7280">Your payout</td><td style="padding:6px 0;text-align:right;font-weight:700">${payout}</td></tr>
+        </table>
+        <p style="margin:0 0 16px;color:#374151">The customer has already paid and the money is held safely in escrow until you accept.</p>
+        <p style="margin:0 0 22px">
+          <a href="${dashboardUrl}" style="background:#f5871f;color:#fff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:10px;display:inline-block">Accept or decline this job</a>
+        </p>
+        <p style="margin:0;color:#9ca3af;font-size:13px">Please respond soon so the customer isn't left waiting.<br>— SLO Handyman</p>
+      </div>`;
+
+    await sendEmail({ to: handyman.email, subject, text, html });
+  } catch (err) {
+    console.error("New-booking notification failed:", err.message);
+  }
+}
+
 const app = express();
 
 // --- Stripe webhook (must be BEFORE express.json so we get the raw body) ---
@@ -91,12 +243,16 @@ async function markSessionPaid(session) {
   } catch (e) {
     console.error("Could not retrieve payment intent:", e.message);
   }
-  return db.updateJob(job.id, {
+  const updated = db.updateJob(job.id, {
     status: "paid",
     paidAt: Date.now(),
     stripePaymentIntentId: piId,
     stripeChargeId: chargeId,
   });
+  // Let the handyman know a new booking is waiting. Best-effort (won't block
+  // or fail the payment flow). The status guard above ensures this fires once.
+  notifyHandymanNewBooking(updated).catch((e) => console.error(e));
+  return updated;
 }
 
 async function syncHandymanStatus(handyman) {
@@ -1126,13 +1282,6 @@ app.post("/api/admin/requests/:id/status", (req, res) => {
 
 // --- Contact form ----------------------------------------------------------
 
-// SMTP config for sending contact form emails (configure in .env)
-const SMTP_HOST = process.env.SMTP_HOST || "";
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_USER = process.env.SMTP_USER || "";
-const SMTP_PASS = process.env.SMTP_PASS || "";
-const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "slohandyman@smart-folder.com";
-
 app.post("/api/contact", async (req, res) => {
   const { name, email, phone, subject, message } = req.body || {};
 
@@ -1158,44 +1307,23 @@ app.post("/api/contact", async (req, res) => {
     message: message.trim().slice(0, 5000),
   });
 
-  // Try to send email if SMTP is configured
-  if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
-    try {
-      const nodemailer = await import("nodemailer");
-      const transporter = nodemailer.default.createTransport({
-        host: SMTP_HOST,
-        port: SMTP_PORT,
-        secure: SMTP_PORT === 465,
-        auth: {
-          user: SMTP_USER,
-          pass: SMTP_PASS,
-        },
-      });
-
-      await transporter.sendMail({
-        from: `"SLO Handyman Contact" <${SMTP_USER}>`,
-        to: CONTACT_EMAIL,
-        replyTo: email.trim(),
-        subject: `[Contact Form] ${subject} - ${name.trim()}`,
-        text: `New contact form submission:\n\nName: ${name.trim()}\nEmail: ${email.trim()}\nPhone: ${phone || "Not provided"}\nSubject: ${subject}\n\nMessage:\n${message.trim()}`,
-        html: `
-          <h2>New Contact Form Submission</h2>
-          <p><strong>Name:</strong> ${name.trim()}</p>
-          <p><strong>Email:</strong> <a href="mailto:${email.trim()}">${email.trim()}</a></p>
-          <p><strong>Phone:</strong> ${phone || "Not provided"}</p>
-          <p><strong>Subject:</strong> ${subject}</p>
-          <hr>
-          <p><strong>Message:</strong></p>
-          <p>${message.trim().replace(/\n/g, "<br>")}</p>
-        `,
-      });
-    } catch (err) {
-      console.error("Failed to send contact email:", err.message);
-      // Don't fail the request - the message is still saved in the database
-    }
-  } else {
-    console.log("Contact form submission (email not configured):", { name, email, subject });
-  }
+  // Forward to the support inbox (best-effort; the message is already saved).
+  await sendEmail({
+    to: CONTACT_EMAIL,
+    replyTo: email.trim(),
+    subject: `[Contact Form] ${subject} - ${name.trim()}`,
+    text: `New contact form submission:\n\nName: ${name.trim()}\nEmail: ${email.trim()}\nPhone: ${phone || "Not provided"}\nSubject: ${subject}\n\nMessage:\n${message.trim()}`,
+    html: `
+      <h2>New Contact Form Submission</h2>
+      <p><strong>Name:</strong> ${escapeHtml(name.trim())}</p>
+      <p><strong>Email:</strong> <a href="mailto:${escapeHtml(email.trim())}">${escapeHtml(email.trim())}</a></p>
+      <p><strong>Phone:</strong> ${escapeHtml(phone || "Not provided")}</p>
+      <p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
+      <hr>
+      <p><strong>Message:</strong></p>
+      <p>${escapeHtml(message.trim()).replace(/\n/g, "<br>")}</p>
+    `,
+  });
 
   res.json({ ok: true, id: contact.id });
 });

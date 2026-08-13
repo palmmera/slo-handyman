@@ -185,6 +185,31 @@ img { max-width: 100%; }
 .badge.completed { background: #e5f6ec; color: var(--green); }
 .badge.declined { background: #fde8e8; color: #c0392b; }
 
+/* Collapsed row for completed jobs on the pro dashboard */
+.job-summary {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
+  cursor: pointer; text-align: left; font: inherit; color: inherit;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.job-summary:hover { border-color: var(--gold); }
+.job-summary .js-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.job-summary .js-check { color: var(--green); font-weight: 800; flex: 0 0 auto; }
+.job-summary .js-svc { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-summary .js-date { color: var(--muted); font-size: .82rem; white-space: nowrap; }
+.job-summary .js-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.job-summary .js-pay { font-weight: 800; color: var(--green); font-size: .9rem; white-space: nowrap; }
+.job-summary .js-chev { color: var(--muted); font-size: .8rem; transition: transform .15s ease; }
+.job-summary.open .js-chev { transform: rotate(180deg); }
+@media (max-width: 480px) {
+  .job-summary .js-date { display: none; }
+}
+
 /* How it works */
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 16px; }
 .step { background: #fff; border:1px solid var(--line); border-radius: var(--radius); padding: 20px; }
