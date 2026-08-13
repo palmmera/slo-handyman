@@ -447,6 +447,11 @@
       if (!data.handyman.ready) {
         jobsEl.append(el("div", { class: "notice warn" },
           "Finish your Stripe payout setup so customers can hire you."));
+        jobsEl.append(el("a", {
+          class: "btn big",
+          href: `/api/handymen/${data.handyman.id}/onboarding-refresh`,
+          style: "margin-bottom:14px",
+        }, "Finish payment setup"));
       }
       if (!jobs.length) {
         jobsEl.append(el("div", { class: "empty" }, "No bookings yet. Share your profile to get hired!"));
