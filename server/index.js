@@ -126,6 +126,8 @@ function publicHandyman(h) {
     photoUrl: h.photoUrl || null,
     payoutsEnabled: h.payoutsEnabled,
     ready: !!h.payoutsEnabled,
+    // Legacy records without the field are treated as available.
+    available: h.available !== false,
     rating: db.handymanRating(h.id),
   };
 }
@@ -463,6 +465,7 @@ app.get("/api/handymen/:id/jobs", (req, res) => {
       bio: h.bio || "",
       photoUrl: h.photoUrl || null,
       ready: !!h.payoutsEnabled,
+      available: h.available !== false,
       rating: db.handymanRating(h.id),
     },
     jobs: jobs
@@ -489,6 +492,53 @@ app.get("/api/handymen/:id/jobs", (req, res) => {
   });
 });
 
+// Handyman accepts a new booking. Moves it from "paid" (awaiting response) to
+// "accepted" (the job is on). Money stays held in escrow until the customer releases it.
+app.post("/api/handymen/:id/jobs/:jobId/accept", (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+  const job = db.getJob(req.params.jobId);
+  if (!job || job.handymanId !== h.id) {
+    return res.status(404).json({ error: "Job not found." });
+  }
+  if (job.status !== "paid") {
+    return res.status(400).json({ error: "Only new, unaccepted bookings can be accepted." });
+  }
+  const updated = db.updateJob(job.id, { status: "accepted", acceptedAt: Date.now() });
+  res.json({ ok: true, status: updated.status });
+});
+
+// Handyman declines a new booking. The customer is fully refunded (job amount +
+// booking fee) since no work will be done.
+app.post("/api/handymen/:id/jobs/:jobId/decline", async (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+  const job = db.getJob(req.params.jobId);
+  if (!job || job.handymanId !== h.id) {
+    return res.status(404).json({ error: "Job not found." });
+  }
+  if (job.status !== "paid") {
+    return res.status(400).json({ error: "Only new, unaccepted bookings can be declined." });
+  }
+
+  // Refund the customer's full payment. Money is still in the platform balance
+  // (escrow), so a straight refund of the payment intent returns everything.
+  if (stripe && job.stripePaymentIntentId) {
+    try {
+      const refund = await stripe.refunds.create({
+        payment_intent: job.stripePaymentIntentId,
+      });
+      db.updateJob(job.id, { stripeRefundId: refund.id });
+    } catch (err) {
+      console.error("Refund failed:", err.message);
+      return res.status(500).json({ error: "Couldn't process the refund. Please try again." });
+    }
+  }
+
+  const updated = db.updateJob(job.id, { status: "declined", declinedAt: Date.now() });
+  res.json({ ok: true, status: updated.status });
+});
+
 // Handyman signals the work is finished. This does NOT release money — it just
 // nudges the customer to confirm and release the escrowed payment.
 app.post("/api/handymen/:id/jobs/:jobId/work-done", (req, res) => {
@@ -498,8 +548,8 @@ app.post("/api/handymen/:id/jobs/:jobId/work-done", (req, res) => {
   if (!job || job.handymanId !== h.id) {
     return res.status(404).json({ error: "Job not found." });
   }
-  if (job.status !== "paid") {
-    return res.status(400).json({ error: "Only paid, in-progress jobs can be marked as done." });
+  if (job.status !== "accepted") {
+    return res.status(400).json({ error: "Only accepted, in-progress jobs can be marked as done." });
   }
   const updated = db.updateJob(job.id, { status: "work_done", workDoneAt: Date.now() });
   res.json({ ok: true, status: updated.status });
@@ -569,6 +619,15 @@ app.put("/api/handymen/:id/profile", async (req, res) => {
       bio: updated.bio || "",
     },
   });
+});
+
+// Handyman toggles whether they're currently taking new requests.
+app.put("/api/handymen/:id/availability", (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+  const available = !!(req.body && req.body.available);
+  const updated = db.updateHandyman(h.id, { available });
+  res.json({ ok: true, available: updated.available });
 });
 
 // Handyman uploads/replaces their profile photo. The client compresses the
@@ -685,6 +744,12 @@ app.post("/api/checkout", async (req, res) => {
       return res.status(400).json({
         error:
           "This handyman hasn't finished setting up payments yet, so they can't be hired right now.",
+      });
+    }
+    if (fresh.available === false) {
+      return res.status(400).json({
+        error:
+          "This handyman isn't taking new requests right now. Please check back later or choose another handyman.",
       });
     }
 
@@ -922,7 +987,7 @@ app.post("/api/jobs/:id/release", async (req, res) => {
   if (!authCustomer(req, job)) {
     return res.status(401).json({ error: "Invalid or missing booking link." });
   }
-  if (job.status !== "paid" && job.status !== "work_done") {
+  if (job.status !== "accepted" && job.status !== "work_done") {
     return res.status(400).json({ error: "This booking isn't in a state that can be released." });
   }
   if (!requireStripe(res)) return;
@@ -997,7 +1062,7 @@ app.get("/api/admin/data", (req, res) => {
     return res.status(401).json({ error: "Wrong password." });
   }
   const jobs = db.listJobs();
-  const paid = jobs.filter((j) => ["paid", "work_done", "completed"].includes(j.status));
+  const paid = jobs.filter((j) => ["paid", "accepted", "work_done", "completed"].includes(j.status));
   const earningsCents = paid.reduce((sum, j) => sum + (j.platformTotalCents || 0), 0);
   const bookingFeesCents = paid.reduce((sum, j) => sum + (j.bookingFeeCents || 0), 0);
   const commissionCents = paid.reduce((sum, j) => sum + (j.commissionCents || 0), 0);
@@ -1057,6 +1122,82 @@ app.post("/api/admin/requests/:id/status", (req, res) => {
   const updated = db.updateRequest(req.params.id, { status });
   if (!updated) return res.status(404).json({ error: "Request not found." });
   res.json({ ok: true, status: updated.status });
+});
+
+// --- Contact form ----------------------------------------------------------
+
+// SMTP config for sending contact form emails (configure in .env)
+const SMTP_HOST = process.env.SMTP_HOST || "";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER || "";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "slohandyman@smart-folder.com";
+
+app.post("/api/contact", async (req, res) => {
+  const { name, email, phone, subject, message } = req.body || {};
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "Please enter your name." });
+  }
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: "Please enter your email address." });
+  }
+  if (!subject) {
+    return res.status(400).json({ error: "Please select a subject." });
+  }
+  if (!message || message.trim().length < 10) {
+    return res.status(400).json({ error: "Please enter a message (at least 10 characters)." });
+  }
+
+  // Store the contact submission in the database
+  const contact = db.createContact({
+    name: name.trim(),
+    email: email.trim().toLowerCase(),
+    phone: (phone || "").trim(),
+    subject,
+    message: message.trim().slice(0, 5000),
+  });
+
+  // Try to send email if SMTP is configured
+  if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
+    try {
+      const nodemailer = await import("nodemailer");
+      const transporter = nodemailer.default.createTransport({
+        host: SMTP_HOST,
+        port: SMTP_PORT,
+        secure: SMTP_PORT === 465,
+        auth: {
+          user: SMTP_USER,
+          pass: SMTP_PASS,
+        },
+      });
+
+      await transporter.sendMail({
+        from: `"SLO Handyman Contact" <${SMTP_USER}>`,
+        to: CONTACT_EMAIL,
+        replyTo: email.trim(),
+        subject: `[Contact Form] ${subject} - ${name.trim()}`,
+        text: `New contact form submission:\n\nName: ${name.trim()}\nEmail: ${email.trim()}\nPhone: ${phone || "Not provided"}\nSubject: ${subject}\n\nMessage:\n${message.trim()}`,
+        html: `
+          <h2>New Contact Form Submission</h2>
+          <p><strong>Name:</strong> ${name.trim()}</p>
+          <p><strong>Email:</strong> <a href="mailto:${email.trim()}">${email.trim()}</a></p>
+          <p><strong>Phone:</strong> ${phone || "Not provided"}</p>
+          <p><strong>Subject:</strong> ${subject}</p>
+          <hr>
+          <p><strong>Message:</strong></p>
+          <p>${message.trim().replace(/\n/g, "<br>")}</p>
+        `,
+      });
+    } catch (err) {
+      console.error("Failed to send contact email:", err.message);
+      // Don't fail the request - the message is still saved in the database
+    }
+  } else {
+    console.log("Contact form submission (email not configured):", { name, email, subject });
+  }
+
+  res.json({ ok: true, id: contact.id });
 });
 
 // Send anything else to the SPA-ish static pages.

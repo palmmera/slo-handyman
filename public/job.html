@@ -30,7 +30,7 @@
         between the customer and the handyman. Use of the site is subject to our
         <a href="/terms.html">Terms &amp; Conditions</a>.
       </p>
-      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a> · <a href="/faq.html">FAQ</a> · <a href="/contact.html">Contact Us</a></div>
     </div>
   </footer>
 
@@ -62,7 +62,11 @@
 
     function statusNotice(job) {
       if (job.status === "paid")
-        return el("div", { class: "notice info" }, "Your payment is held safely. Release it once the work is finished.");
+        return el("div", { class: "notice info" }, "Payment received and held safely. Waiting for your handyman to accept the job.");
+      if (job.status === "accepted")
+        return el("div", { class: "notice info" }, `${job.handyman?.name || "Your handyman"} accepted the job! Your payment stays held safely — release it once the work is finished.`);
+      if (job.status === "declined")
+        return el("div", { class: "notice warn" }, "Your handyman couldn't take this job, so your payment has been fully refunded. Feel free to book another handyman.");
       if (job.status === "work_done")
         return el("div", { class: "notice warn" }, `${job.handyman?.name || "Your handyman"} marked the work as done. If you're satisfied, release the payment below.`);
       if (job.status === "completed")
@@ -96,7 +100,7 @@
       root.append(price);
 
       // Release action (escrow)
-      if (job.status === "paid" || job.status === "work_done") {
+      if (job.status === "accepted" || job.status === "work_done") {
         const card = el("div", { class: "form-card", style: "text-align:center;margin-top:8px" });
         card.append(
           el("h2", { style: "margin:0 0 6px" }, "Is the job done?"),

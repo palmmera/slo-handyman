@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FAQ — SLO Handyman</title>
+  <meta name="description" content="Frequently asked questions about SLO Handyman — booking, payments, and becoming a handyman." />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+  <style>
+    .faq { max-width: 760px; margin: 0 auto; }
+    .faq h1 { margin: .2em 0; }
+    .faq h2 { margin: 1.8em 0 .6em; font-size: 1.15rem; color: var(--brand); border-bottom: 1px solid #eee; padding-bottom: .4em; }
+    .faq-item { margin-bottom: 1.4em; }
+    .faq-item summary {
+      font-weight: 700;
+      cursor: pointer;
+      padding: 10px 0;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .faq-item summary::before {
+      content: "+";
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--brand);
+      width: 20px;
+      flex-shrink: 0;
+    }
+    .faq-item[open] summary::before { content: "−"; }
+    .faq-item .answer {
+      padding: 0 0 10px 30px;
+      color: var(--ink);
+      line-height: 1.6;
+    }
+    .faq-item .answer p { margin: 0 0 .8em; }
+    .faq-item .answer ul { padding-left: 1.2em; margin: .5em 0; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><a href="/">Find a handyman</a></nav>
+    </div>
+  </header>
+
+  <main class="container" style="padding-top:28px">
+    <div class="faq">
+      <div class="page-head"><a class="back" href="/">← Home</a></div>
+      <h1>Frequently Asked Questions</h1>
+      <p style="color:var(--muted)">Everything you need to know about using SLO Handyman.</p>
+
+      <h2>For Customers</h2>
+
+      <details class="faq-item">
+        <summary>How does SLO Handyman work?</summary>
+        <div class="answer">
+          <p>SLO Handyman connects you with trusted local handymen in San Luis Obispo. Here's how it works:</p>
+          <ul>
+            <li><strong>Browse</strong> — Find skilled handymen and view their services, rates, and reviews.</li>
+            <li><strong>Book</strong> — Describe your job, agree on a price, and pay securely online.</li>
+            <li><strong>Get it done</strong> — Your handyman completes the work.</li>
+            <li><strong>Release payment</strong> — Once you're satisfied, release the payment to your handyman.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How much does it cost to book a handyman?</summary>
+        <div class="answer">
+          <p>You pay the job price agreed upon with your handyman, plus a small <strong>$5 booking fee</strong>. That's it — no hidden charges.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How do I pay?</summary>
+        <div class="answer">
+          <p>All payments are processed securely through <strong>Stripe</strong>. You can pay with any major credit or debit card. Your payment is held safely until you confirm the job is complete.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Is my payment safe?</summary>
+        <div class="answer">
+          <p>Yes. When you book a job, your payment is held securely in escrow. The handyman doesn't receive the funds until you release the payment after the work is finished to your satisfaction.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How do I release payment after the job is done?</summary>
+        <div class="answer">
+          <p>After booking, you'll receive a private link to your booking page. Once the handyman finishes the work and you're satisfied, visit that page and click the "Release payment" button. The handyman will then receive their payout.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>What if I'm not satisfied with the work?</summary>
+        <div class="answer">
+          <p>Since jobs are agreements directly between you and the handyman, we encourage you to communicate with your handyman first to resolve any issues. You control when to release the payment, so don't release it until you're happy with the work.</p>
+          <p>If you can't resolve the issue directly, you may dispute the charge through your payment provider according to their policies.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Can I cancel a booking?</summary>
+        <div class="answer">
+          <p>Please contact your handyman directly to discuss cancellations or rescheduling. Since we hold your payment in escrow, it can be refunded if the work hasn't started and both parties agree.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>What services can I book?</summary>
+        <div class="answer">
+          <p>Our handymen offer a wide range of services including:</p>
+          <ul>
+            <li>Painting</li>
+            <li>Plumbing</li>
+            <li>Electrical work</li>
+            <li>Furniture assembly and installation</li>
+            <li>General repairs</li>
+            <li>Moving help</li>
+            <li>Pressure washing</li>
+            <li>And more — browse our listings to see what's available!</li>
+          </ul>
+        </div>
+      </details>
+
+      <h2>For Handymen</h2>
+
+      <details class="faq-item">
+        <summary>How do I become a handyman on SLO Handyman?</summary>
+        <div class="answer">
+          <p>Joining is free and easy:</p>
+          <ul>
+            <li>Visit the <a href="/join.html">Become a handyman</a> page.</li>
+            <li>Fill out your profile with your services, rates, and experience.</li>
+            <li>Set up payouts through Stripe (so you can get paid).</li>
+            <li>Once approved, your profile goes live and customers can book you!</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How much does it cost to join?</summary>
+        <div class="answer">
+          <p>Joining SLO Handyman is <strong>completely free</strong>. There are no signup fees, monthly fees, or listing fees.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>What is the commission?</summary>
+        <div class="answer">
+          <p>We retain a <strong>12% commission</strong> from each job. For example, if a customer pays $100 for a job, you receive $88. This commission helps us maintain the platform and bring you customers.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How do I get paid?</summary>
+        <div class="answer">
+          <p>Payments go directly to your bank account via Stripe. When a customer releases payment after a job is complete, your share (minus the commission) is automatically transferred to your connected bank account.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Do I need to be licensed or insured?</summary>
+        <div class="answer">
+          <p>We don't require licensing or insurance to join, but we strongly encourage it. Having proper licensing and insurance builds trust with customers and protects you legally. You can indicate on your profile whether you're licensed and/or insured.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How do I set my rates?</summary>
+        <div class="answer">
+          <p>You have full control over your pricing. You can set an hourly rate on your profile, or negotiate a flat price with each customer based on the specific job. Customers pay what you both agree upon.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How do I mark a job as complete?</summary>
+        <div class="answer">
+          <p>Log into your dashboard to view your active jobs. You can mark a job as "work done" to notify the customer that you've finished. The customer then releases the payment to you.</p>
+        </div>
+      </details>
+
+      <h2>General</h2>
+
+      <details class="faq-item">
+        <summary>What areas does SLO Handyman serve?</summary>
+        <div class="answer">
+          <p>We serve San Luis Obispo County and surrounding areas, including SLO, Los Osos, Morro Bay, Pismo Beach, Arroyo Grande, Atascadero, Paso Robles, and more. Individual handymen may specify which areas they cover on their profiles.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Is SLO Handyman the handyman?</summary>
+        <div class="answer">
+          <p><strong>No.</strong> SLO Handyman is a booking platform that connects customers with independent local handymen. We do not employ the handymen, perform any work, or supervise jobs. Each job is an agreement directly between the customer and the handyman. Please review our <a href="/terms.html">Terms & Conditions</a> for full details.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How do reviews work?</summary>
+        <div class="answer">
+          <p>After a job is completed and payment is released, customers can leave a star rating (1–5) and an optional written review. Reviews help other customers make informed decisions and help great handymen stand out.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How do I contact SLO Handyman?</summary>
+        <div class="answer">
+          <p>Have a question that's not answered here? Visit our <a href="/contact.html">Contact Us</a> page to send us a message, or email us directly at <strong>slohandyman@smart-folder.com</strong>. We typically respond within 1–2 business days.</p>
+        </div>
+      </details>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      SLO Handyman — serving San Luis Obispo, CA ·
+      <a href="/">Find a handyman</a> ·
+      <a href="/join.html">Become a handyman</a> ·
+      <a href="/terms.html">Terms &amp; Conditions</a> ·
+      <a href="/faq.html">FAQ</a> ·
+      <a href="/contact.html">Contact Us</a>
+    </div>
+  </footer>
+</body>
+</html>

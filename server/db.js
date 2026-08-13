@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.RENDER ? "/data" : path.join(__dirname, "..", "data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 
-const DEFAULT_DATA = { handymen: [], jobs: [], users: [], sessions: [], requests: [] };
+const DEFAULT_DATA = { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [] };
 
 function ensureFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -32,9 +32,10 @@ function read() {
       users: data.users || [],
       sessions: data.sessions || [],
       requests: data.requests || [],
+      contacts: data.contacts || [],
     };
   } catch {
-    return { handymen: [], jobs: [], users: [], sessions: [], requests: [] };
+    return { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [] };
   }
 }
 
@@ -79,6 +80,8 @@ export function createHandyman(fields) {
     licensed: !!fields.licensed,
     insured: !!fields.insured,
     serviceAreas: fields.serviceAreas || "",
+    // Whether the handyman is currently taking new requests (toggle in their dashboard).
+    available: true,
     // Private token: a backup way into the handyman's own job dashboard.
     manageToken: crypto.randomBytes(16).toString("hex"),
     stripeAccountId: fields.stripeAccountId || null,
@@ -117,7 +120,9 @@ export function createJob(fields) {
     createdAt: Date.now(),
     // Escrow lifecycle:
     // pending  -> customer hasn't paid yet
-    // paid     -> customer paid; funds HELD by the platform (not the handyman)
+    // paid     -> customer paid; funds HELD by the platform; awaiting handyman accept/decline
+    // accepted -> handyman accepted the job; work in progress; funds still held
+    // declined -> handyman declined; customer fully refunded
     // work_done-> handyman marked the work finished; awaiting customer confirmation
     // completed-> customer released payment; handyman payout transferred
     status: "pending",
@@ -143,6 +148,9 @@ export function createJob(fields) {
     stripePaymentIntentId: null,
     stripeChargeId: null, // used to release the held funds to the handyman
     stripeTransferId: null,
+    stripeRefundId: null, // set when a declined booking is refunded
+    acceptedAt: null,
+    declinedAt: null,
     workDoneAt: null,
     releasedAt: null,
     // Private token: the customer's key to manage this booking (release + review).
@@ -340,4 +348,27 @@ export function updateRequest(requestId, updates) {
   data.requests[idx] = { ...data.requests[idx], ...updates };
   write(data);
   return data.requests[idx];
+}
+
+// --- Contact form submissions ----------------------------------------------
+
+export function createContact(fields) {
+  const data = read();
+  const contact = {
+    id: id("cnt"),
+    createdAt: Date.now(),
+    name: fields.name || "",
+    email: fields.email || "",
+    phone: fields.phone || "",
+    subject: fields.subject || "",
+    message: fields.message || "",
+  };
+  data.contacts = data.contacts || [];
+  data.contacts.push(contact);
+  write(data);
+  return contact;
+}
+
+export function listContacts() {
+  return (read().contacts || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }

@@ -99,7 +99,9 @@
       <div>
         SLO Handyman — serving San Luis Obispo, CA ·
         <a href="/join.html">Become a handyman</a> ·
-        <a href="/terms.html">Terms &amp; Conditions</a>
+        <a href="/terms.html">Terms &amp; Conditions</a> ·
+        <a href="/faq.html">FAQ</a> ·
+        <a href="/contact.html">Contact Us</a>
       </div>
     </div>
   </footer>
@@ -167,9 +169,11 @@
         const tags = el("div", { class: "tags" },
           (h.services || []).slice(0, 4).map((s) => el("span", { class: "tag" }, s)));
 
-        const badge = h.ready
-          ? el("span", { class: "badge ready" }, "✓ Ready to hire")
-          : el("span", { class: "badge pending" }, "Setting up");
+        const badge = !h.ready
+          ? el("span", { class: "badge pending" }, "Setting up")
+          : h.available === false
+          ? el("span", { class: "badge declined" }, "Not taking requests")
+          : el("span", { class: "badge ready" }, "✓ Ready to hire");
 
         const rate = h.hourlyRate
           ? el("div", { class: "rate" }, [money(h.hourlyRate), el("span", {}, "/hr")])
@@ -183,7 +187,11 @@
             ])
           : el("div", { class: "rating-none", style: "margin-top:6px" }, "New — no reviews yet");
 
-        const card = el("a", { class: "card link", href: `/handyman.html?id=${h.id}` }, [
+        const card = el("a", {
+          class: "card link",
+          href: `/handyman.html?id=${h.id}`,
+          style: h.available === false ? "opacity:.6" : "",
+        }, [
           el("div", { class: "hm-top" }, [
             av,
             el("div", {}, [

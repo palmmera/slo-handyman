@@ -181,6 +181,9 @@ img { max-width: 100%; }
 }
 .badge.ready { background: #e5f6ec; color: var(--green); }
 .badge.pending { background: #fff0e0; color: var(--brand-dark); }
+.badge.paid { background: #eef1f8; color: var(--brand); }
+.badge.completed { background: #e5f6ec; color: var(--green); }
+.badge.declined { background: #fde8e8; color: #c0392b; }
 
 /* How it works */
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 16px; }

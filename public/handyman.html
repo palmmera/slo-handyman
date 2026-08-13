@@ -35,7 +35,7 @@
         between the customer and the handyman. Use of the site is subject to our
         <a href="/terms.html">Terms &amp; Conditions</a>.
       </p>
-      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a> · <a href="/faq.html">FAQ</a> · <a href="/contact.html">Contact Us</a></div>
     </div>
   </footer>
 
@@ -95,9 +95,11 @@
 
     function renderProfile(h) {
       const av = avatarEl(h, "width:64px;height:64px;font-size:1.5rem");
-      const badge = h.ready
-        ? el("span", { class: "badge ready" }, "✓ Ready to hire")
-        : el("span", { class: "badge pending" }, "Not accepting jobs yet");
+      const badge = !h.ready
+        ? el("span", { class: "badge pending" }, "Not accepting jobs yet")
+        : h.available === false
+        ? el("span", { class: "badge declined" }, "Not taking requests")
+        : el("span", { class: "badge ready" }, "✓ Ready to hire");
 
       const r = h.rating || { average: null, count: 0 };
       const ratingLine = r.count
@@ -143,6 +145,12 @@
       if (!h.ready) {
         hireArea.append(el("div", { class: "notice warn" },
           `${h.name} is still finishing their payment setup, so they can't be hired just yet. Check back soon.`));
+        return;
+      }
+      if (h.available === false) {
+        hireArea.append(el("div", { class: "notice warn" },
+          `${h.name} isn't taking new requests right now (they may be on vacation or fully booked). Check back later, or browse other handymen.`));
+        hireArea.append(el("a", { class: "btn secondary", href: "/#browse", style: "margin-top:12px" }, "Browse other handymen"));
         return;
       }
 

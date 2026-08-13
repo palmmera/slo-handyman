@@ -17,6 +17,7 @@
     .stat .lbl { color:var(--muted); font-size:.85rem; }
     .badge.completed { background:#e5f6ec; color:var(--green); }
     .badge.paid { background:#eef1f8; color:var(--brand); }
+    .badge.declined { background:#fde8e8; color:#c0392b; }
     .profile-card .phead { display:flex; justify-content:space-between; align-items:center; gap:10px; }
     .profile-card .prow { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-top:1px solid var(--line); }
     .profile-card .prow:first-of-type { border-top:0; }
@@ -25,6 +26,16 @@
     .edit-grid { display:grid; gap:12px; margin-top:6px; }
     .edit-grid .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     @media (max-width:520px){ .edit-grid .row2 { grid-template-columns:1fr; } }
+    .avail-card { display:flex; justify-content:space-between; align-items:center; gap:14px; }
+    .avail-card .txt .t { font-weight:800; font-size:1.05rem; }
+    .avail-card .txt .s { color:var(--muted); font-size:.9rem; margin-top:2px; }
+    .switch { position:relative; display:inline-block; width:54px; height:30px; flex-shrink:0; }
+    .switch input { opacity:0; width:0; height:0; }
+    .switch .slider { position:absolute; cursor:pointer; inset:0; background:#cfd3da; border-radius:999px; transition:.2s; }
+    .switch .slider:before { content:""; position:absolute; height:24px; width:24px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
+    .switch input:checked + .slider { background:var(--green,#2ecc71); }
+    .switch input:checked + .slider:before { transform:translateX(24px); }
+    .switch input:disabled + .slider { opacity:.6; cursor:default; }
   </style>
 </head>
 <body>
@@ -63,6 +74,7 @@
     </div>
 
     <div id="stats" class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));display:none"></div>
+    <div id="availability" style="margin-top:16px"></div>
     <div id="profile" style="margin-top:16px"></div>
     <div id="jobs" style="margin-top:16px"></div>
     <div id="danger" style="display:none;text-align:center;margin:34px 0 10px">
@@ -80,7 +92,7 @@
         between the customer and the handyman. Use of the site is subject to our
         <a href="/terms.html">Terms &amp; Conditions</a>.
       </p>
-      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a></div>
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a> · <a href="/faq.html">FAQ</a> · <a href="/contact.html">Contact Us</a></div>
     </div>
   </footer>
 
@@ -90,6 +102,7 @@
     let id = qs("id");
     let token = qs("token");
     const statsEl = document.getElementById("stats");
+    const availabilityEl = document.getElementById("availability");
     const profileEl = document.getElementById("profile");
     const jobsEl = document.getElementById("jobs");
 
@@ -138,6 +151,53 @@
       } catch {}
       showLookup("Please paste the full link, including the part after ?id=");
     });
+
+    function renderAvailability(h) {
+      availabilityEl.innerHTML = "";
+      const available = h.available !== false;
+
+      const title = el("div", { class: "t" }, available ? "You're taking new requests" : "You're not taking new requests");
+      const sub = el("div", { class: "s" },
+        available
+          ? "Customers can find and book you. Turn this off if you're on vacation or fully booked."
+          : "You're hidden from booking. Existing jobs are unaffected. Turn back on when you're ready.");
+
+      const input = el("input", { type: "checkbox" });
+      input.checked = available;
+      const sw = el("label", { class: "switch" }, [input, el("span", { class: "slider" })]);
+
+      const msg = el("div", { style: "margin-top:10px" });
+
+      input.addEventListener("change", async () => {
+        const next = input.checked;
+        input.disabled = true;
+        msg.innerHTML = "";
+        try {
+          const res = await fetch(`/api/handymen/${id}/availability${tokenQ()}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ available: next, token }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "Couldn't update.");
+          h.available = out.available;
+          renderAvailability(h);
+        } catch (ex) {
+          input.checked = !next;
+          input.disabled = false;
+          msg.append(el("div", { class: "notice error" }, ex.message));
+        }
+      });
+
+      const card = el("div", { class: "card", style: available ? "" : "border-color:#eadfc4;background:#fff9ee" }, [
+        el("div", { class: "avail-card" }, [
+          el("div", { class: "txt" }, [title, sub]),
+          sw,
+        ]),
+        msg,
+      ]);
+      availabilityEl.append(card);
+    }
 
     function renderProfile(h, editing = false) {
       profileEl.innerHTML = "";
@@ -317,16 +377,18 @@
       document.getElementById("title").textContent = `${data.handyman.name}'s jobs`;
       const jobs = data.jobs;
 
-      const upcoming = jobs.filter((j) => j.status === "paid" || j.status === "work_done");
+      const newRequests = jobs.filter((j) => j.status === "paid");
+      const inProgress = jobs.filter((j) => j.status === "accepted" || j.status === "work_done");
       const completed = jobs.filter((j) => j.status === "completed");
       const earned = completed.reduce((s, j) => s + (j.yourPayout || 0), 0);
-      const held = upcoming.reduce((s, j) => s + (j.yourPayout || 0), 0);
+      const held = inProgress.reduce((s, j) => s + (j.yourPayout || 0), 0);
 
       statsEl.style.display = "grid";
       statsEl.innerHTML = "";
       const rObj = data.handyman.rating || { average: null, count: 0 };
       const cards = [
-        ["To do", String(upcoming.length)],
+        ["New requests", String(newRequests.length)],
+        ["In progress", String(inProgress.length)],
         ["Completed", String(completed.length)],
         ["Paid out to you", money(earned)],
         ["Held (pending release)", money(held)],
@@ -339,6 +401,7 @@
         ]));
       }
 
+      renderAvailability(data.handyman);
       renderProfile(data.handyman);
       setupDangerZone();
 
@@ -357,7 +420,11 @@
           ? el("span", { class: "badge completed" }, "✓ Completed & paid")
           : j.status === "work_done"
           ? el("span", { class: "badge pending" }, "Awaiting customer release")
-          : el("span", { class: "badge paid" }, "Booked — to do");
+          : j.status === "accepted"
+          ? el("span", { class: "badge paid" }, "Accepted — to do")
+          : j.status === "declined"
+          ? el("span", { class: "badge declined" }, "Declined — refunded")
+          : el("span", { class: "badge pending" }, "New — respond now");
 
         const contact = el("div", { class: "contact" }, [
           el("div", { class: "row" }, [el("span", {}, "Customer"), el("strong", {}, j.customer.name || "—")]),
@@ -387,6 +454,56 @@
         }
 
         if (j.status === "paid") {
+          card.append(el("div", { class: "notice info", style: "margin-top:12px" },
+            "New booking — the customer has already paid (held safely). Accept to take the job, or decline to fully refund them."));
+
+          const actMsg = el("div");
+          const acceptBtn = el("button", { class: "btn", style: "margin-top:12px" }, "✓ Accept job");
+          const declineBtn = el("button", { class: "btn secondary", style: "margin-top:8px" }, "Decline");
+
+          acceptBtn.addEventListener("click", async () => {
+            acceptBtn.disabled = true; declineBtn.disabled = true;
+            acceptBtn.textContent = "Accepting…";
+            try {
+              const res = await fetch(`/api/handymen/${id}/jobs/${j.id}/accept`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token }),
+              });
+              const out = await res.json();
+              if (!res.ok) throw new Error(out.error || "Couldn't accept.");
+              load();
+            } catch (ex) {
+              acceptBtn.disabled = false; declineBtn.disabled = false;
+              acceptBtn.textContent = "✓ Accept job";
+              actMsg.innerHTML = "";
+              actMsg.append(el("div", { class: "notice error", style: "margin-top:10px" }, ex.message));
+            }
+          });
+
+          declineBtn.addEventListener("click", async () => {
+            if (!window.confirm("Decline this job? The customer will be fully refunded and this can't be undone.")) return;
+            acceptBtn.disabled = true; declineBtn.disabled = true;
+            declineBtn.textContent = "Declining…";
+            try {
+              const res = await fetch(`/api/handymen/${id}/jobs/${j.id}/decline`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token }),
+              });
+              const out = await res.json();
+              if (!res.ok) throw new Error(out.error || "Couldn't decline.");
+              load();
+            } catch (ex) {
+              acceptBtn.disabled = false; declineBtn.disabled = false;
+              declineBtn.textContent = "Decline";
+              actMsg.innerHTML = "";
+              actMsg.append(el("div", { class: "notice error", style: "margin-top:10px" }, ex.message));
+            }
+          });
+
+          card.append(acceptBtn, declineBtn, actMsg);
+        } else if (j.status === "accepted") {
           const btn = el("button", { class: "btn secondary", style: "margin-top:12px" }, "Mark work as done");
           btn.addEventListener("click", async () => {
             btn.disabled = true;
@@ -403,6 +520,9 @@
         } else if (j.status === "work_done") {
           card.append(el("div", { class: "notice info", style: "margin-top:12px" },
             "You marked this done. Waiting for the customer to confirm and release your payment."));
+        } else if (j.status === "declined") {
+          card.append(el("div", { class: "notice info", style: "margin-top:12px" },
+            "You declined this job and the customer was refunded."));
         }
 
         jobsEl.append(card);
