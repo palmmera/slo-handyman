@@ -77,9 +77,19 @@
     <div id="availability" style="margin-top:16px"></div>
     <div id="profile" style="margin-top:16px"></div>
     <div id="jobs" style="margin-top:16px"></div>
-    <div id="danger" style="display:none;text-align:center;margin:34px 0 10px">
-      <a href="#" id="deleteAccount" style="color:var(--muted);font-size:.78rem;text-decoration:underline">Delete my account</a>
-      <div id="deleteMsg"></div>
+    <div id="manageAccount" style="display:none;text-align:center;margin:34px 0 10px">
+      <a href="#" id="manageToggle" style="color:var(--muted);font-size:.85rem;text-decoration:underline">Manage account</a>
+      <div id="managePanel" style="display:none;max-width:440px;margin:14px auto 0;text-align:left">
+        <div class="form-card">
+          <h3 style="margin:0 0 6px">Manage account</h3>
+          <p style="color:var(--muted);font-size:.86rem;margin:0 0 14px">
+            You can update your profile, rate, photo, and availability using the sections above.
+            If you no longer want to offer your services, you can permanently delete your account below.
+          </p>
+          <a href="#" id="deleteAccount" style="color:#b02525;font-size:.85rem;text-decoration:underline">Delete my account</a>
+          <div id="deleteMsg"></div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -343,10 +353,18 @@
 
     let dangerReady = false;
     function setupDangerZone() {
-      const danger = document.getElementById("danger");
-      danger.style.display = "block";
+      const manage = document.getElementById("manageAccount");
+      manage.style.display = "block";
       if (dangerReady) return;
       dangerReady = true;
+      const toggle = document.getElementById("manageToggle");
+      const panel = document.getElementById("managePanel");
+      toggle.addEventListener("click", (e) => {
+        e.preventDefault();
+        const open = panel.style.display !== "none";
+        panel.style.display = open ? "none" : "block";
+        toggle.textContent = open ? "Manage account" : "Hide account options";
+      });
       const link = document.getElementById("deleteAccount");
       const msg = document.getElementById("deleteMsg");
       link.addEventListener("click", async (e) => {
@@ -504,19 +522,31 @@
 
           card.append(acceptBtn, declineBtn, actMsg);
         } else if (j.status === "accepted") {
+          const doneMsg = el("div");
           const btn = el("button", { class: "btn secondary", style: "margin-top:12px" }, "Mark work as done");
           btn.addEventListener("click", async () => {
             btn.disabled = true;
             btn.textContent = "Saving…";
-            const res = await fetch(`/api/handymen/${id}/jobs/${j.id}/work-done`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ token }),
-            });
-            if (res.ok) { load(); }
-            else { btn.disabled = false; btn.textContent = "Mark work as done"; }
+            doneMsg.innerHTML = "";
+            try {
+              const res = await fetch(`/api/handymen/${id}/jobs/${j.id}/work-done`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token }),
+              });
+              const out = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(out.error || "Couldn't mark as done. Please try again.");
+              btn.textContent = "✓ Marked as done";
+              doneMsg.append(el("div", { class: "notice ok", style: "margin-top:10px" },
+                "Done! We let the customer know so they can release your payment."));
+              setTimeout(load, 1200);
+            } catch (ex) {
+              btn.disabled = false;
+              btn.textContent = "Mark work as done";
+              doneMsg.append(el("div", { class: "notice error", style: "margin-top:10px" }, ex.message));
+            }
           });
-          card.append(btn);
+          card.append(btn, doneMsg);
         } else if (j.status === "work_done") {
           card.append(el("div", { class: "notice info", style: "margin-top:12px" },
             "You marked this done. Waiting for the customer to confirm and release your payment."));
