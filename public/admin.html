@@ -33,6 +33,9 @@
     .req-count { font-size:.9rem; color:var(--muted); font-weight:600; }
     .btn.tiny { padding:6px 12px; font-size:.85rem; }
     .btn.ghost { background:#fff; color:var(--ink); border:1.5px solid var(--line); }
+    .btn.danger { background:#c0392b; color:#fff; }
+    .btn.danger:hover { background:#a93226; }
+    .accounts-msg { margin: 8px 0 12px; }
   </style>
 </head>
 <body>
@@ -60,6 +63,33 @@
     <div id="dash" style="display:none">
       <div class="page-head"><h1 style="margin:0">Your earnings</h1></div>
       <div class="grid" id="stats" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+
+      <section class="section">
+        <h2>Handymen <span id="handymanCount" class="req-count"></span></h2>
+        <p style="color:var(--muted);margin-top:-6px">Profiles listed on the site. Delete removes the profile, login, and Stripe payout account when possible.</p>
+        <div id="accountsMsg" class="accounts-msg"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody id="handymenBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Customer accounts <span id="customerCount" class="req-count"></span></h2>
+        <p style="color:var(--muted);margin-top:-6px">People who signed up to book jobs. This does not include handyman logins.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Email</th><th>Phone</th><th></th></tr>
+            </thead>
+            <tbody id="customersBody"></tbody>
+          </table>
+        </div>
+      </section>
 
       <section class="section">
         <h2>Job requests <span id="reqCount" class="req-count"></span></h2>
@@ -118,6 +148,88 @@
     async function refresh() {
       const res = await fetch(`/api/admin/data?token=${encodeURIComponent(adminToken)}`);
       if (res.ok) render(await res.json());
+    }
+
+    function showAccountsMsg(text, ok) {
+      const host = document.getElementById("accountsMsg");
+      host.innerHTML = "";
+      if (text) host.append(el("div", { class: ok ? "notice ok" : "notice error" }, text));
+    }
+
+    async function deleteHandyman(h) {
+      const heldNote = h.heldJobs
+        ? `\nThis account has ${h.heldJobs} job(s) with payment still held. Delete will be blocked until those are finished or refunded.`
+        : "";
+      if (!confirm(`Delete handyman "${h.name || h.email}"?\n\nThis removes their profile and login from the site.${heldNote}`)) return;
+      showAccountsMsg("");
+      const res = await fetch(`/api/admin/handymen/${encodeURIComponent(h.id)}?token=${encodeURIComponent(adminToken)}`, {
+        method: "DELETE",
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showAccountsMsg(out.error || "Couldn't delete that handyman.", false);
+        return;
+      }
+      showAccountsMsg(`Removed ${h.name || h.email}.`, true);
+      await refresh();
+    }
+
+    async function deleteCustomer(u) {
+      if (!confirm(`Delete customer account "${u.name || u.email}"? They will no longer be able to log in.`)) return;
+      showAccountsMsg("");
+      const res = await fetch(`/api/admin/customers/${encodeURIComponent(u.id)}?token=${encodeURIComponent(adminToken)}`, {
+        method: "DELETE",
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showAccountsMsg(out.error || "Couldn't delete that account.", false);
+        return;
+      }
+      showAccountsMsg(`Removed ${u.name || u.email}.`, true);
+      await refresh();
+    }
+
+    function statusLabel(h) {
+      if (h.heldJobs) return `${h.heldJobs} held job(s)`;
+      if (!h.ready) return "Payouts not ready";
+      if (!h.available) return "Not taking requests";
+      return "Live";
+    }
+
+    function renderAccounts(data) {
+      const handymen = data.handymen || [];
+      const customers = data.customers || [];
+      document.getElementById("handymanCount").textContent = handymen.length ? `· ${handymen.length}` : "";
+      document.getElementById("customerCount").textContent = customers.length ? `· ${customers.length}` : "";
+
+      const hBody = document.getElementById("handymenBody");
+      hBody.innerHTML = "";
+      if (!handymen.length) {
+        hBody.append(el("tr", {}, el("td", { colspan: "5", style: "text-align:center;color:var(--muted)" }, "No handyman accounts yet.")));
+      }
+      for (const h of handymen) {
+        hBody.append(el("tr", {}, [
+          el("td", {}, h.name || "—"),
+          el("td", {}, h.email || "—"),
+          el("td", {}, h.phone || "—"),
+          el("td", {}, el("span", { class: h.ready && h.available && !h.heldJobs ? "status-paid" : "status-pending" }, statusLabel(h))),
+          el("td", {}, el("button", { class: "btn tiny danger", onclick: () => deleteHandyman(h) }, "Delete")),
+        ]));
+      }
+
+      const cBody = document.getElementById("customersBody");
+      cBody.innerHTML = "";
+      if (!customers.length) {
+        cBody.append(el("tr", {}, el("td", { colspan: "4", style: "text-align:center;color:var(--muted)" }, "No customer accounts yet.")));
+      }
+      for (const u of customers) {
+        cBody.append(el("tr", {}, [
+          el("td", {}, u.name || "—"),
+          el("td", {}, u.email || "—"),
+          el("td", {}, u.phone || "—"),
+          el("td", {}, el("button", { class: "btn tiny danger", onclick: () => deleteCustomer(u) }, "Delete")),
+        ]));
+      }
     }
 
     async function setRequestStatus(id, status) {
@@ -194,6 +306,7 @@
         ]));
       }
 
+      renderAccounts(data);
       renderRequests(data.requests || []);
 
       const body = document.getElementById("jobsBody");

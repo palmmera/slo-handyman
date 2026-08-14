@@ -214,6 +214,10 @@ export function listJobsForCustomer({ userId, email }) {
 
 // --- Users (accounts) -----------------------------------------------------
 
+export function listUsers() {
+  return read().users.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
 export function getUserById(userId) {
   return read().users.find((u) => u.id === userId) || null;
 }

@@ -348,6 +348,39 @@ app.use("/uploads", express.static(UPLOADS_DIR));
 
 // --- Helpers --------------------------------------------------------------
 
+function requireAdmin(req, res) {
+  const token = req.query.token || req.headers["x-admin-token"] || req.body?.token;
+  if (token !== ADMIN_TOKEN) {
+    res.status(401).json({ error: "Wrong password." });
+    return false;
+  }
+  return true;
+}
+
+function heldJobsForHandyman(handymanId) {
+  return db
+    .listJobsForHandyman(handymanId)
+    .filter((j) => j.status === "paid" || j.status === "accepted" || j.status === "work_done");
+}
+
+async function removeHandymanAccount(h) {
+  if (stripe && h.stripeAccountId) {
+    try {
+      await stripe.accounts.del(h.stripeAccountId);
+    } catch (e) {
+      console.error("Stripe account delete failed:", e.message);
+    }
+  }
+  for (const e of ["png", "jpg", "webp"]) {
+    const old = path.join(UPLOADS_DIR, `${h.id}.${e}`);
+    if (fs.existsSync(old)) {
+      try { fs.unlinkSync(old); } catch {}
+    }
+  }
+  db.deleteHandyman(h.id);
+  if (h.userId) db.deleteUser(h.userId);
+}
+
 function requireStripe(res) {
   if (!stripe) {
     res.status(503).json({
@@ -954,10 +987,7 @@ app.delete("/api/handymen/:id", async (req, res) => {
   const h = authHandyman(req);
   if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
 
-  // Safety: don't allow deletion while money is being held in escrow for them.
-  const activeJobs = db
-    .listJobsForHandyman(h.id)
-    .filter((j) => j.status === "paid" || j.status === "work_done");
+  const activeJobs = heldJobsForHandyman(h.id);
   if (activeJobs.length) {
     return res.status(409).json({
       error:
@@ -965,26 +995,7 @@ app.delete("/api/handymen/:id", async (req, res) => {
     });
   }
 
-  // Best-effort: close their Stripe connected account. Never block on failure.
-  if (stripe && h.stripeAccountId) {
-    try {
-      await stripe.accounts.del(h.stripeAccountId);
-    } catch (e) {
-      console.error("Stripe account delete failed:", e.message);
-    }
-  }
-
-  // Remove their uploaded photo, if any.
-  for (const e of ["png", "jpg", "webp"]) {
-    const old = path.join(UPLOADS_DIR, `${h.id}.${e}`);
-    if (fs.existsSync(old)) {
-      try { fs.unlinkSync(old); } catch {}
-    }
-  }
-
-  // Remove the profile and the linked login account (+ its sessions).
-  db.deleteHandyman(h.id);
-  if (h.userId) db.deleteUser(h.userId);
+  await removeHandymanAccount(h);
 
   // End the current session too.
   const token = auth.getSessionToken(req);
@@ -1346,15 +1357,13 @@ app.post("/api/requests", (req, res) => {
 // --- Owner dashboard ------------------------------------------------------
 
 app.get("/api/admin/data", (req, res) => {
-  const token = req.query.token || req.headers["x-admin-token"];
-  if (token !== ADMIN_TOKEN) {
-    return res.status(401).json({ error: "Wrong password." });
-  }
+  if (!requireAdmin(req, res)) return;
   const jobs = db.listJobs();
   const paid = jobs.filter((j) => ["paid", "accepted", "work_done", "completed"].includes(j.status));
   const earningsCents = paid.reduce((sum, j) => sum + (j.platformTotalCents || 0), 0);
   const bookingFeesCents = paid.reduce((sum, j) => sum + (j.bookingFeeCents || 0), 0);
   const commissionCents = paid.reduce((sum, j) => sum + (j.commissionCents || 0), 0);
+  const handymanUserIds = new Set(db.listHandymen().map((h) => h.userId).filter(Boolean));
   res.json({
     totals: {
       jobsPaid: paid.length,
@@ -1362,12 +1371,29 @@ app.get("/api/admin/data", (req, res) => {
       bookingFees: bookingFeesCents / 100,
       commission: commissionCents / 100,
     },
-    handymen: db.listHandymen().map((h) => ({
-      id: h.id,
-      name: h.name,
-      email: h.email,
-      ready: !!h.payoutsEnabled,
-    })),
+    handymen: db.listHandymen().map((h) => {
+      const held = heldJobsForHandyman(h.id).length;
+      return {
+        id: h.id,
+        name: h.name,
+        email: h.email,
+        phone: h.phone || "",
+        city: h.city || "",
+        ready: !!h.payoutsEnabled,
+        available: h.available !== false,
+        heldJobs: held,
+        createdAt: h.createdAt,
+      };
+    }),
+    customers: db.listUsers()
+      .filter((u) => !u.handymanId && !handymanUserIds.has(u.id))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone || "",
+        createdAt: u.createdAt,
+      })),
     jobs: jobs.map((j) => ({
       id: j.id,
       date: j.createdAt,
@@ -1400,10 +1426,33 @@ app.get("/api/admin/data", (req, res) => {
   });
 });
 
-// Owner updates a request's status (new -> contacted -> closed).
+app.delete("/api/admin/handymen/:id", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const h = db.getHandyman(req.params.id);
+  if (!h) return res.status(404).json({ error: "Handyman not found." });
+  const held = heldJobsForHandyman(h.id);
+  if (held.length) {
+    return res.status(409).json({
+      error: `This handyman has ${held.length} job(s) with payment still held. Finish or refund those in Stripe before deleting the account.`,
+    });
+  }
+  await removeHandymanAccount(h);
+  res.json({ ok: true });
+});
+
+app.delete("/api/admin/customers/:id", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const user = db.getUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: "Account not found." });
+  if (user.handymanId) {
+    return res.status(400).json({ error: "This login is a handyman account. Delete it from the Handymen list." });
+  }
+  db.deleteUser(user.id);
+  res.json({ ok: true });
+});
+
 app.post("/api/admin/requests/:id/status", (req, res) => {
-  const token = req.query.token || req.headers["x-admin-token"] || req.body?.token;
-  if (token !== ADMIN_TOKEN) return res.status(401).json({ error: "Wrong password." });
+  if (!requireAdmin(req, res)) return;
   const { status } = req.body || {};
   if (!["new", "contacted", "closed"].includes(status)) {
     return res.status(400).json({ error: "Invalid status." });
