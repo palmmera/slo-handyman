@@ -376,3 +376,12 @@ export function createContact(fields) {
 export function listContacts() {
   return (read().contacts || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
+
+export function deleteContact(contactId) {
+  const data = read();
+  const before = (data.contacts || []).length;
+  data.contacts = (data.contacts || []).filter((c) => c.id !== contactId);
+  const removed = data.contacts.length !== before;
+  if (removed) write(data);
+  return removed;
+}

@@ -74,6 +74,7 @@
             <option>General question</option>
             <option>Booking help</option>
             <option>Payment or refund</option>
+            <option>Report a problem or user</option>
             <option>Technical issue</option>
             <option>Become a handyman</option>
             <option>Other</option>
@@ -81,7 +82,7 @@
         </div>
         <div class="field">
           <label>Message</label>
-          <textarea name="message" placeholder="How can we help?" required minlength="10"></textarea>
+          <textarea id="messageField" name="message" placeholder="How can we help?" required minlength="10"></textarea>
         </div>
         <div id="formErr"></div>
         <button class="btn block big" type="submit">Send message</button>
@@ -106,6 +107,13 @@
     const form = document.getElementById("contactForm");
     const formErr = document.getElementById("formErr");
     const statusArea = document.getElementById("statusArea");
+    const messageField = document.getElementById("messageField");
+
+    form.subject.addEventListener("change", () => {
+      messageField.placeholder = form.subject.value === "Report a problem or user"
+        ? "Who or what is the problem? Include names, dates, or a booking if you can."
+        : "How can we help?";
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();

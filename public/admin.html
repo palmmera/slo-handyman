@@ -29,7 +29,7 @@
     .req .badge { font-size:.78rem; padding:3px 10px; border-radius:999px; font-weight:700; }
     .badge.b-new { background:#eef4ff; color:#1a4fb0; }
     .badge.b-contacted { background:#fff6e6; color:#8a5a00; }
-    .badge.b-closed { background:#eef0f3; color:#586074; }
+    .badge.b-report { background:#fde8e8; color:#c0392b; }
     .req-count { font-size:.9rem; color:var(--muted); font-weight:600; }
     .btn.tiny { padding:6px 12px; font-size:.85rem; }
     .btn.ghost { background:#fff; color:var(--ink); border:1.5px solid var(--line); }
@@ -89,6 +89,12 @@
             <tbody id="customersBody"></tbody>
           </table>
         </div>
+      </section>
+
+      <section class="section">
+        <h2>Messages &amp; reports <span id="contactCount" class="req-count"></span></h2>
+        <p style="color:var(--muted);margin-top:-6px">From the Contact page. Read them here, then delete after you've handled them.</p>
+        <div id="contactsList"></div>
       </section>
 
       <section class="section">
@@ -232,6 +238,52 @@
       }
     }
 
+    async function deleteContact(c) {
+      if (!confirm(`Delete this message from ${c.name || c.email}?`)) return;
+      const res = await fetch(`/api/admin/contacts/${encodeURIComponent(c.id)}?token=${encodeURIComponent(adminToken)}`, {
+        method: "DELETE",
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showAccountsMsg(out.error || "Couldn't delete that message.", false);
+        return;
+      }
+      await refresh();
+    }
+
+    function renderContacts(contacts) {
+      const host = document.getElementById("contactsList");
+      const countEl = document.getElementById("contactCount");
+      host.innerHTML = "";
+      countEl.textContent = contacts.length ? `· ${contacts.length}` : "";
+
+      if (!contacts.length) {
+        host.append(el("div", { class: "empty" }, el("p", {}, "No messages yet.")));
+        return;
+      }
+      for (const c of contacts) {
+        const isReport = (c.subject || "") === "Report a problem or user";
+        const contact = [
+          c.phone ? `📞 ${c.phone}` : null,
+          c.email ? `✉️ ${c.email}` : null,
+        ].filter(Boolean).join("   ");
+        host.append(el("div", { class: `req ${isReport ? "new" : ""}` }, [
+          el("div", { class: "top" }, [
+            el("div", {}, [
+              el("span", { class: "who" }, c.name || "Someone"),
+              el("span", { class: `badge ${isReport ? "b-report" : "b-new"}`, style: "margin-left:10px" }, c.subject || "Message"),
+            ]),
+            el("span", { class: "when" }, new Date(c.date).toLocaleString()),
+          ]),
+          el("div", { class: "desc" }, c.message || ""),
+          el("div", { class: "meta" }, el("span", {}, contact || "No contact provided")),
+          el("div", { class: "actions" }, [
+            el("button", { class: "btn tiny danger", onclick: () => deleteContact(c) }, "Delete"),
+          ]),
+        ]));
+      }
+    }
+
     async function setRequestStatus(id, status) {
       await fetch(`/api/admin/requests/${id}/status?token=${encodeURIComponent(adminToken)}`, {
         method: "POST",
@@ -307,6 +359,7 @@
       }
 
       renderAccounts(data);
+      renderContacts(data.contacts || []);
       renderRequests(data.requests || []);
 
       const body = document.getElementById("jobsBody");

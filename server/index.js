@@ -1423,6 +1423,15 @@ app.get("/api/admin/data", (req, res) => {
       timing: r.timing,
       budget: r.budget,
     })),
+    contacts: db.listContacts().map((c) => ({
+      id: c.id,
+      date: c.createdAt,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      subject: c.subject,
+      message: c.message,
+    })),
   });
 });
 
@@ -1460,6 +1469,13 @@ app.post("/api/admin/requests/:id/status", (req, res) => {
   const updated = db.updateRequest(req.params.id, { status });
   if (!updated) return res.status(404).json({ error: "Request not found." });
   res.json({ ok: true, status: updated.status });
+});
+
+app.delete("/api/admin/contacts/:id", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const removed = db.deleteContact(req.params.id);
+  if (!removed) return res.status(404).json({ error: "Message not found." });
+  res.json({ ok: true });
 });
 
 // --- Contact form ----------------------------------------------------------
