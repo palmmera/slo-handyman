@@ -94,7 +94,7 @@
     }
 
     function renderProfile(h) {
-      const av = avatarEl(h, "width:64px;height:64px;font-size:1.5rem");
+      const av = avatarEl(h, "width:96px;height:96px;font-size:2.25rem");
       const badge = !h.ready
         ? el("span", { class: "badge pending" }, "Not accepting jobs yet")
         : h.available === false
