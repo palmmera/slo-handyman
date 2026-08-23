@@ -44,7 +44,7 @@ function write(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
-function id(prefix) {
+export function id(prefix) {
   return `${prefix}_${Date.now().toString(36)}${Math.random()
     .toString(36)
     .slice(2, 8)}`;
