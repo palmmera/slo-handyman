@@ -7,6 +7,20 @@
   <link rel="stylesheet" href="/css/styles.css" />
   <link rel="icon" href="/img/icon.png" />
   <link rel="apple-touch-icon" href="/img/icon.png" />
+  <style>
+    .portfolio-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:10px; }
+    .portfolio-thumb { aspect-ratio:1; border-radius:8px; overflow:hidden; cursor:pointer; border:2px solid var(--line); }
+    .portfolio-thumb:hover { border-color:var(--brand); transform:scale(1.02); transition:.15s; }
+    .portfolio-thumb img { width:100%; height:100%; object-fit:cover; }
+    .lightbox { position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px; }
+    .lightbox img { max-width:90vw; max-height:90vh; border-radius:8px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+    .lightbox-close { position:absolute; top:20px; right:20px; width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,.2); color:#fff; border:none; font-size:2rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+    .lightbox-close:hover { background:rgba(255,255,255,.3); }
+    .lightbox-nav { position:absolute; top:50%; transform:translateY(-50%); width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,.2); color:#fff; border:none; font-size:1.5rem; cursor:pointer; }
+    .lightbox-nav:hover { background:rgba(255,255,255,.3); }
+    .lightbox-nav.prev { left:20px; }
+    .lightbox-nav.next { right:20px; }
+  </style>
 </head>
 <body>
   <header class="site-header">
@@ -64,6 +78,57 @@
       renderProfile(h);
       renderHire(h);
       loadReviews();
+    }
+
+    function openLightbox(portfolio, currentUrl) {
+      let currentIndex = portfolio.findIndex((p) => p.url === currentUrl);
+      
+      const overlay = el("div", { class: "lightbox" });
+      const img = el("img", { src: currentUrl });
+      const closeBtn = el("button", { class: "lightbox-close" }, "×");
+      
+      closeBtn.onclick = () => overlay.remove();
+      overlay.onclick = (e) => {
+        if (e.target === overlay) overlay.remove();
+      };
+      
+      if (portfolio.length > 1) {
+        const prevBtn = el("button", { class: "lightbox-nav prev" }, "‹");
+        const nextBtn = el("button", { class: "lightbox-nav next" }, "›");
+        
+        prevBtn.onclick = (e) => {
+          e.stopPropagation();
+          currentIndex = (currentIndex - 1 + portfolio.length) % portfolio.length;
+          img.src = portfolio[currentIndex].url;
+        };
+        
+        nextBtn.onclick = (e) => {
+          e.stopPropagation();
+          currentIndex = (currentIndex + 1) % portfolio.length;
+          img.src = portfolio[currentIndex].url;
+        };
+        
+        overlay.append(prevBtn, img, nextBtn, closeBtn);
+      } else {
+        overlay.append(img, closeBtn);
+      }
+      
+      document.body.append(overlay);
+      
+      // Keyboard navigation
+      const handleKey = (e) => {
+        if (e.key === "Escape") {
+          overlay.remove();
+          document.removeEventListener("keydown", handleKey);
+        } else if (e.key === "ArrowLeft" && portfolio.length > 1) {
+          currentIndex = (currentIndex - 1 + portfolio.length) % portfolio.length;
+          img.src = portfolio[currentIndex].url;
+        } else if (e.key === "ArrowRight" && portfolio.length > 1) {
+          currentIndex = (currentIndex + 1) % portfolio.length;
+          img.src = portfolio[currentIndex].url;
+        }
+      };
+      document.addEventListener("keydown", handleKey);
     }
 
     async function loadReviews() {
@@ -128,6 +193,24 @@
           badge,
         ]),
       ]));
+      
+      // --- Portfolio gallery ---
+      if (h.portfolio && h.portfolio.length > 0) {
+        const portfolioCard = el("div", { class: "card", style: "margin-top:16px" }, [
+          el("h2", { style: "margin:0 0 12px;font-size:1.2rem" }, "Work photos"),
+          el("div", { class: "portfolio-grid" }, 
+            h.portfolio.slice(0, 6).map((img) => 
+              el("div", { 
+                class: "portfolio-thumb",
+                onclick: () => openLightbox(h.portfolio, img.url)
+              }, [
+                el("img", { src: img.url, alt: img.caption || "" })
+              ])
+            )
+          )
+        ]);
+        profileEl.append(portfolioCard);
+      }
     }
 
     function renderHire(h) {

@@ -202,6 +202,9 @@
             ]),
           ]),
           tags,
+          h.portfolio && h.portfolio.length > 0 
+            ? el("div", { style: "margin-top:6px;font-size:.85rem;color:var(--muted)" }, `📸 ${h.portfolio.length} photo${h.portfolio.length > 1 ? 's' : ''}`)
+            : null,
           el("div", { class: "hm-meta" }, [rate, badge]),
         ]);
         list.append(card);

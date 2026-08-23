@@ -371,10 +371,21 @@ async function removeHandymanAccount(h) {
       console.error("Stripe account delete failed:", e.message);
     }
   }
+  // Delete profile photo
   for (const e of ["png", "jpg", "webp"]) {
     const old = path.join(UPLOADS_DIR, `${h.id}.${e}`);
     if (fs.existsSync(old)) {
       try { fs.unlinkSync(old); } catch {}
+    }
+  }
+  // Delete portfolio photos
+  if (h.portfolio && h.portfolio.length > 0) {
+    for (const img of h.portfolio) {
+      const filename = img.url.split("?")[0].replace("/uploads/", "");
+      const filepath = path.join(UPLOADS_DIR, filename);
+      if (fs.existsSync(filepath)) {
+        try { fs.unlinkSync(filepath); } catch {}
+      }
     }
   }
   db.deleteHandyman(h.id);
@@ -443,6 +454,7 @@ function publicHandyman(h) {
     hourlyRate: h.hourlyRate,
     bio: h.bio,
     photoUrl: h.photoUrl || null,
+    portfolio: h.portfolio || [],
     payoutsEnabled: h.payoutsEnabled,
     ready: !!h.payoutsEnabled,
     // Legacy records without the field are treated as available.
@@ -783,6 +795,7 @@ app.get("/api/handymen/:id/jobs", (req, res) => {
       hourlyRate: h.hourlyRate,
       bio: h.bio || "",
       photoUrl: h.photoUrl || null,
+      portfolio: h.portfolio || [],
       ready: !!h.payoutsEnabled,
       available: h.available !== false,
       rating: db.handymanRating(h.id),
@@ -980,6 +993,75 @@ app.post("/api/handymen/:id/photo", (req, res) => {
   const photoUrl = `/uploads/${h.id}.${ext}?v=${Date.now()}`;
   db.updateHandyman(h.id, { photoUrl });
   res.json({ ok: true, photoUrl });
+});
+
+// Handyman uploads a portfolio image (up to 6). Each image is stored separately
+// and tracked in the handyman's portfolio array.
+app.post("/api/handymen/:id/portfolio", (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+
+  const portfolio = h.portfolio || [];
+  if (portfolio.length >= 6) {
+    return res.status(400).json({ error: "You can upload up to 6 work photos. Delete one first to add another." });
+  }
+
+  const { image, caption } = req.body || {};
+  const match = /^data:image\/(png|jpe?g|webp);base64,(.+)$/i.exec(image || "");
+  if (!match) {
+    return res.status(400).json({ error: "Please choose a PNG, JPG, or WEBP image." });
+  }
+  const ext = match[1].toLowerCase() === "jpeg" ? "jpg" : match[1].toLowerCase();
+  const buffer = Buffer.from(match[2], "base64");
+  if (buffer.length > 4 * 1024 * 1024) {
+    return res.status(413).json({ error: "That image is too large. Try a smaller one." });
+  }
+
+  // Generate unique filename: hm_xxx_portfolio_1.jpg, hm_xxx_portfolio_2.jpg, etc.
+  const nextIndex = portfolio.length + 1;
+  const filename = `${h.id}_portfolio_${nextIndex}.${ext}`;
+  const filepath = path.join(UPLOADS_DIR, filename);
+  fs.writeFileSync(filepath, buffer);
+
+  const portfolioItem = {
+    id: db.id("img"),
+    url: `/uploads/${filename}?v=${Date.now()}`,
+    caption: (caption || "").trim().slice(0, 200),
+    uploadedAt: Date.now(),
+  };
+
+  const updated = db.updateHandyman(h.id, {
+    portfolio: [...portfolio, portfolioItem],
+  });
+
+  res.json({ ok: true, portfolio: updated.portfolio });
+});
+
+// Handyman deletes a portfolio image.
+app.delete("/api/handymen/:id/portfolio/:imageId", (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+
+  const portfolio = h.portfolio || [];
+  const item = portfolio.find((p) => p.id === req.params.imageId);
+  if (!item) {
+    return res.status(404).json({ error: "Image not found." });
+  }
+
+  // Extract filename from URL and delete file
+  const filename = item.url.split("?")[0].replace("/uploads/", "");
+  const filepath = path.join(UPLOADS_DIR, filename);
+  if (fs.existsSync(filepath)) {
+    try {
+      fs.unlinkSync(filepath);
+    } catch {}
+  }
+
+  const updated = db.updateHandyman(h.id, {
+    portfolio: portfolio.filter((p) => p.id !== req.params.imageId),
+  });
+
+  res.json({ ok: true, portfolio: updated.portfolio });
 });
 
 // Handyman permanently deletes their own account (profile + login).

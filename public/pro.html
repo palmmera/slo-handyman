@@ -41,6 +41,14 @@
     .switch input:checked + .slider { background:var(--green,#2ecc71); }
     .switch input:checked + .slider:before { transform:translateX(24px); }
     .switch input:disabled + .slider { opacity:.6; cursor:default; }
+    .portfolio-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:10px; margin-top:10px; }
+    .portfolio-thumb { position:relative; aspect-ratio:1; border-radius:8px; overflow:hidden; background:#f7f6f2; border:2px solid var(--line); }
+    .portfolio-thumb img { width:100%; height:100%; object-fit:cover; }
+    .portfolio-thumb.add { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; cursor:pointer; border-style:dashed; }
+    .portfolio-thumb.add:hover { border-color:var(--brand); background:#f9f9fb; }
+    .portfolio-thumb .add-icon { font-size:2rem; font-weight:300; color:var(--muted); }
+    .portfolio-delete { position:absolute; top:4px; right:4px; width:24px; height:24px; border-radius:50%; background:rgba(0,0,0,.7); color:#fff; border:none; font-size:1.2rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+    .portfolio-delete:hover { background:rgba(0,0,0,.9); }
   </style>
 </head>
 <body>
@@ -301,7 +309,93 @@
         fileIn,
       ]);
 
+      // --- Portfolio photos (work samples) ---
+      const portfolioMsg = el("div", { class: "hint" }, "Add up to 6 photos showcasing your work");
+      const portfolioGrid = el("div", { class: "portfolio-grid" });
+      
+      function renderPortfolio() {
+        portfolioGrid.innerHTML = "";
+        const portfolio = h.portfolio || [];
+        
+        // Show existing images with delete buttons
+        for (const img of portfolio) {
+          const thumb = el("div", { class: "portfolio-thumb" }, [
+            el("img", { src: img.url, alt: "" }),
+            el("button", { 
+              class: "portfolio-delete", 
+              type: "button",
+              onclick: async (e) => {
+                e.preventDefault();
+                if (!confirm("Delete this photo?")) return;
+                try {
+                  const res = await fetch(`/api/handymen/${id}/portfolio/${img.id}${tokenQ()}`, { method: "DELETE" });
+                  const out = await res.json();
+                  if (!res.ok) throw new Error(out.error || "Couldn't delete.");
+                  h.portfolio = out.portfolio;
+                  renderPortfolio();
+                } catch (ex) {
+                  alert(ex.message);
+                }
+              }
+            }, "×"),
+          ]);
+          portfolioGrid.append(thumb);
+        }
+        
+        // Add upload button if under 6
+        if (portfolio.length < 6) {
+          const addThumb = el("div", { class: "portfolio-thumb add" }, [
+            el("div", { class: "add-icon" }, "+"),
+            el("div", { style: "font-size:.8rem;color:var(--muted)" }, "Add photo"),
+          ]);
+          const portfolioFileIn = el("input", { 
+            type: "file", 
+            accept: "image/png,image/jpeg,image/webp", 
+            style: "display:none" 
+          });
+          addThumb.addEventListener("click", () => portfolioFileIn.click());
+          portfolioFileIn.addEventListener("change", async () => {
+            const file = portfolioFileIn.files && portfolioFileIn.files[0];
+            if (!file) return;
+            portfolioMsg.className = "hint";
+            portfolioMsg.textContent = "Uploading…";
+            try {
+              const dataUrl = await compressImage(file, 1024, 0.85);
+              const res = await fetch(`/api/handymen/${id}/portfolio${tokenQ()}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ image: dataUrl }),
+              });
+              const out = await res.json();
+              if (!res.ok) throw new Error(out.error || "Upload failed.");
+              h.portfolio = out.portfolio;
+              renderPortfolio();
+              portfolioMsg.className = "hint";
+              portfolioMsg.textContent = `Photo added ✓ (${out.portfolio.length}/6)`;
+            } catch (ex) {
+              portfolioMsg.className = "notice error";
+              portfolioMsg.textContent = ex.message;
+            } finally {
+              portfolioFileIn.value = "";
+            }
+          });
+          addThumb.append(portfolioFileIn);
+          portfolioGrid.append(addThumb);
+        } else {
+          portfolioMsg.textContent = "Maximum 6 photos. Delete one to add another.";
+        }
+      }
+      
+      renderPortfolio();
+      
+      const portfolioSection = el("div", { style: "margin:20px 0" }, [
+        el("label", { style: "display:block;font-weight:700;margin-bottom:6px" }, "Work photos"),
+        portfolioMsg,
+        portfolioGrid,
+      ]);
+
       const nameIn = el("input", { class: "input", value: h.name || "" });
+
       const cityIn = el("input", { class: "input", value: h.city || "" });
       const servicesIn = el("input", { class: "input", value: (h.services || []).join(", "), placeholder: "Plumbing, Carpentry, Painting" });
       const rateIn = el("input", { class: "input", type: "number", min: "1", step: "1", value: h.hourlyRate ?? "" });
@@ -309,6 +403,7 @@
       const bioIn = el("textarea", { class: "input", rows: "3" }, h.bio || "");
 
       form.append(photoRow);
+      form.append(portfolioSection);
       form.append(field("Name", nameIn));
       form.append(el("div", { class: "row2" }, [
         field("City", cityIn),

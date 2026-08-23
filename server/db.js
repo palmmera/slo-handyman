@@ -87,6 +87,8 @@ export function createHandyman(fields) {
     stripeAccountId: fields.stripeAccountId || null,
     payoutsEnabled: false,
     detailsSubmitted: false,
+    // Portfolio: up to 6 work photos to showcase past jobs.
+    portfolio: [],
   };
   data.handymen.push(handyman);
   write(data);

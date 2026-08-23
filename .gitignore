@@ -1,5 +1,6 @@
 node_modules/
 .env
-data/db.json
+data/
+backups/db.json
 npm-debug.log*
 .DS_Store
