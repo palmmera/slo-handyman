@@ -95,6 +95,8 @@ export function createHandyman(fields) {
       expiration: "",
       documentExt: "",
     },
+    // One-time nudge shown in the dashboard to complete license/insurance.
+    credentialsPromptSeen: false,
     serviceAreas: fields.serviceAreas || "",
     // Whether the handyman is currently taking new requests (toggle in their dashboard).
     available: true,

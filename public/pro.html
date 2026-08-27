@@ -88,6 +88,7 @@
       </div>
     </div>
 
+    <div id="credBanner" style="margin-top:16px"></div>
     <div id="stats" class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));display:none"></div>
     <div id="availability" style="margin-top:16px"></div>
     <div id="profile" style="margin-top:16px"></div>
@@ -222,6 +223,50 @@
         msg,
       ]);
       availabilityEl.append(card);
+    }
+
+    // One-time nudge to complete license & insurance. Never shown again once
+    // dismissed or once they've filled in either field.
+    function renderCredBanner(h) {
+      const bannerEl = document.getElementById("credBanner");
+      bannerEl.innerHTML = "";
+      const lic = h.license || {};
+      const ins = h.insurance || {};
+      const alreadyStarted = !!(lic.status || ins.status);
+      if (alreadyStarted || h.credentialsPromptSeen) return;
+
+      async function markSeen() {
+        h.credentialsPromptSeen = true;
+        try {
+          await fetch(`/api/handymen/${id}/dismiss-credentials-prompt${tokenQ()}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          });
+        } catch {}
+      }
+
+      const addBtn = el("button", { class: "btn", style: "padding:8px 16px" }, "Add now");
+      const laterBtn = el("button", { class: "btn secondary", style: "padding:8px 16px" }, "Maybe later");
+
+      addBtn.addEventListener("click", () => {
+        markSeen();
+        bannerEl.innerHTML = "";
+        renderProfile(h, true);
+        profileEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      laterBtn.addEventListener("click", () => {
+        markSeen();
+        bannerEl.innerHTML = "";
+      });
+
+      bannerEl.append(el("div", { class: "notice info", style: "display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between" }, [
+        el("div", { style: "flex:1;min-width:220px" }, [
+          el("strong", {}, "🛡️ Build trust with customers. "),
+          "Add your license & insurance to earn a verified badge on your profile. It only takes a minute and it's optional.",
+        ]),
+        el("div", { style: "display:flex;gap:8px" }, [addBtn, laterBtn]),
+      ]));
     }
 
     function renderProfile(h, editing = false) {
@@ -705,6 +750,7 @@
       }
 
       renderAvailability(data.handyman);
+      renderCredBanner(data.handyman);
       renderProfile(data.handyman);
       setupDangerZone();
 

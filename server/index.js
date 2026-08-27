@@ -860,6 +860,7 @@ app.get("/api/handymen/:id/jobs", (req, res) => {
         expiration: (h.insurance && h.insurance.expiration) || "",
         hasDocument: !!(h.insurance && h.insurance.documentExt),
       },
+      credentialsPromptSeen: !!h.credentialsPromptSeen,
       ready: !!h.payoutsEnabled,
       available: h.available !== false,
       rating: db.handymanRating(h.id),
@@ -1126,6 +1127,14 @@ app.delete("/api/handymen/:id/portfolio/:imageId", (req, res) => {
   });
 
   res.json({ ok: true, portfolio: updated.portfolio });
+});
+
+// Handyman dismisses the one-time "add license & insurance" nudge.
+app.post("/api/handymen/:id/dismiss-credentials-prompt", (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+  db.updateHandyman(h.id, { credentialsPromptSeen: true });
+  res.json({ ok: true });
 });
 
 // Handyman updates their self-reported license & insurance details (text only).
