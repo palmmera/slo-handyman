@@ -312,6 +312,10 @@ textarea { min-height: 90px; resize: vertical; }
 @media (max-width:560px){ .cat-tile img { width:76px; height:76px; } }
 @media (max-width:380px){ .cat-tile img { width:66px; height:66px; } }
 
+.trust-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.trust-chip { font-size:.76rem; font-weight:700; padding:3px 9px; border-radius:999px; background:#f4f7ff; color:#1a4fb0; border:1px solid #e2e8f5; }
+.trust-chip.insured { background:#eaf7ef; color:#1c8a4b; border-color:#d6ecdd; }
+
 /* Active category filter chip */
 .filter-bar { display:flex; align-items:center; gap:10px; margin:4px 0 16px; flex-wrap:wrap; }
 .filter-chip {

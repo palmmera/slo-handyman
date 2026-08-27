@@ -13,6 +13,12 @@ const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const UPLOADS_DIR = process.env.RENDER ? "/data/uploads" : path.join(PUBLIC_DIR, "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
+// Private documents (license/insurance) live OUTSIDE the publicly served folder.
+// They are never exposed via a static route — only through an authenticated
+// download endpoint restricted to the handyman (and admin).
+const PRIVATE_DIR = process.env.RENDER ? "/data/private-docs" : path.join(__dirname, "..", "private-docs");
+if (!fs.existsSync(PRIVATE_DIR)) fs.mkdirSync(PRIVATE_DIR, { recursive: true });
+
 const PORT = process.env.PORT || 3000;
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const BOOKING_FEE = Number(process.env.BOOKING_FEE || 5);
@@ -388,6 +394,15 @@ async function removeHandymanAccount(h) {
       }
     }
   }
+  // Delete private credential documents (license + insurance).
+  for (const type of ["license", "insurance"]) {
+    for (const e of ["pdf", "png", "jpg", "webp"]) {
+      const doc = path.join(PRIVATE_DIR, `${h.id}_${type}.${e}`);
+      if (fs.existsSync(doc)) {
+        try { fs.unlinkSync(doc); } catch {}
+      }
+    }
+  }
   db.deleteHandyman(h.id);
   if (h.userId) db.deleteUser(h.userId);
 }
@@ -445,7 +460,40 @@ async function syncHandymanStatus(handyman) {
   }
 }
 
+// A credential is "active" when self-reported as yes and, if an expiration date
+// was given, that date hasn't passed. Missing expiration is treated as active.
+function credentialActive(cred, dateStr) {
+  if (!cred || cred.status !== "yes") return false;
+  if (!dateStr) return true;
+  const exp = new Date(dateStr);
+  if (isNaN(exp.getTime())) return true;
+  return exp >= new Date(new Date().toDateString());
+}
+
+// Public-safe view of credentials. The license number IS shown (it's a public
+// credential customers can verify with the CSLB). The insurance policy number
+// is never collected, and uploaded documents are never exposed here.
+function publicCredentials(h) {
+  const lic = h.license || {};
+  const ins = h.insurance || {};
+  return {
+    license: {
+      active: credentialActive(lic, lic.expiration),
+      number: lic.number || "",
+      type: lic.type || "",
+      state: lic.state || "",
+      expiration: lic.expiration || "",
+    },
+    insurance: {
+      active: credentialActive(ins, ins.expiration),
+      company: ins.company || "",
+      expiration: ins.expiration || "",
+    },
+  };
+}
+
 function publicHandyman(h) {
+  const creds = publicCredentials(h);
   return {
     id: h.id,
     name: h.name,
@@ -455,6 +503,8 @@ function publicHandyman(h) {
     bio: h.bio,
     photoUrl: h.photoUrl || null,
     portfolio: h.portfolio || [],
+    license: creds.license,
+    insurance: creds.insurance,
     payoutsEnabled: h.payoutsEnabled,
     ready: !!h.payoutsEnabled,
     // Legacy records without the field are treated as available.
@@ -796,6 +846,20 @@ app.get("/api/handymen/:id/jobs", (req, res) => {
       bio: h.bio || "",
       photoUrl: h.photoUrl || null,
       portfolio: h.portfolio || [],
+      license: {
+        status: (h.license && h.license.status) || "",
+        number: (h.license && h.license.number) || "",
+        type: (h.license && h.license.type) || "",
+        state: (h.license && h.license.state) || "CA",
+        expiration: (h.license && h.license.expiration) || "",
+        hasDocument: !!(h.license && h.license.documentExt),
+      },
+      insurance: {
+        status: (h.insurance && h.insurance.status) || "",
+        company: (h.insurance && h.insurance.company) || "",
+        expiration: (h.insurance && h.insurance.expiration) || "",
+        hasDocument: !!(h.insurance && h.insurance.documentExt),
+      },
       ready: !!h.payoutsEnabled,
       available: h.available !== false,
       rating: db.handymanRating(h.id),
@@ -1062,6 +1126,151 @@ app.delete("/api/handymen/:id/portfolio/:imageId", (req, res) => {
   });
 
   res.json({ ok: true, portfolio: updated.portfolio });
+});
+
+// Handyman updates their self-reported license & insurance details (text only).
+// Documents are uploaded/removed through the separate credential-doc endpoints.
+app.put("/api/handymen/:id/credentials", (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+
+  const body = req.body || {};
+  const lic = body.license || {};
+  const ins = body.insurance || {};
+
+  const licStatus = ["yes", "no", "na"].includes(lic.status) ? lic.status : "";
+  const insStatus = ["yes", "no"].includes(ins.status) ? ins.status : "";
+
+  const prevLic = h.license || {};
+  const prevIns = h.insurance || {};
+
+  const license = {
+    status: licStatus,
+    // Only keep details when they actually hold a license.
+    number: licStatus === "yes" ? String(lic.number || "").trim().slice(0, 40) : "",
+    type: licStatus === "yes" ? String(lic.type || "").trim().slice(0, 80) : "",
+    state: licStatus === "yes" ? String(lic.state || "CA").trim().slice(0, 20) : "",
+    expiration: licStatus === "yes" ? String(lic.expiration || "").trim().slice(0, 20) : "",
+    // Preserve any uploaded document reference.
+    documentExt: prevLic.documentExt || "",
+  };
+
+  const insurance = {
+    status: insStatus,
+    company: insStatus === "yes" ? String(ins.company || "").trim().slice(0, 120) : "",
+    expiration: insStatus === "yes" ? String(ins.expiration || "").trim().slice(0, 20) : "",
+    documentExt: prevIns.documentExt || "",
+  };
+
+  const updated = db.updateHandyman(h.id, {
+    license,
+    insurance,
+    // Keep the legacy booleans in sync so nothing else breaks.
+    licensed: licStatus === "yes",
+    insured: insStatus === "yes",
+  });
+
+  res.json({
+    ok: true,
+    license: { ...updated.license, hasDocument: !!updated.license.documentExt },
+    insurance: { ...updated.insurance, hasDocument: !!updated.insurance.documentExt },
+  });
+});
+
+// Content types we accept for private credential documents.
+const DOC_MIME = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  webp: "image/webp",
+};
+
+// Handyman uploads a PRIVATE license or insurance document (PDF or image).
+// Stored outside the public folder; retrievable only via the auth endpoint below.
+app.post("/api/handymen/:id/credential-doc", (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+
+  const { type, image } = req.body || {};
+  if (type !== "license" && type !== "insurance") {
+    return res.status(400).json({ error: "Invalid document type." });
+  }
+  const match = /^data:(application\/pdf|image\/(?:png|jpe?g|webp));base64,(.+)$/i.exec(image || "");
+  if (!match) {
+    return res.status(400).json({ error: "Please choose a PDF, PNG, JPG, or WEBP file." });
+  }
+  const mime = match[1].toLowerCase();
+  const ext = mime === "application/pdf" ? "pdf" : mime.split("/")[1].replace("jpeg", "jpg");
+  const buffer = Buffer.from(match[2], "base64");
+  if (buffer.length > 4 * 1024 * 1024) {
+    return res.status(413).json({ error: "That file is too large (max 4MB)." });
+  }
+
+  // Remove any previous document (extension may differ) to avoid orphans.
+  for (const e of ["pdf", "png", "jpg", "webp"]) {
+    const old = path.join(PRIVATE_DIR, `${h.id}_${type}.${e}`);
+    if (fs.existsSync(old)) {
+      try { fs.unlinkSync(old); } catch {}
+    }
+  }
+
+  fs.writeFileSync(path.join(PRIVATE_DIR, `${h.id}_${type}.${ext}`), buffer);
+
+  const field = type === "license" ? "license" : "insurance";
+  const current = h[field] || {};
+  const updated = db.updateHandyman(h.id, {
+    [field]: { ...current, documentExt: ext },
+  });
+
+  res.json({ ok: true, hasDocument: !!updated[field].documentExt });
+});
+
+// Handyman (or admin) downloads a private credential document. Never public.
+app.get("/api/handymen/:id/credential-doc", (req, res) => {
+  const type = req.query.type;
+  if (type !== "license" && type !== "insurance") {
+    return res.status(400).json({ error: "Invalid document type." });
+  }
+  // Allow the owning handyman, or an admin with the admin token.
+  const h = authHandyman(req);
+  const isAdmin = (req.query.token || req.headers["x-admin-token"]) === ADMIN_TOKEN;
+  if (!h && !isAdmin) {
+    return res.status(401).json({ error: "Not authorized to view this document." });
+  }
+  const handyman = h || db.getHandyman(req.params.id);
+  if (!handyman) return res.status(404).json({ error: "Not found." });
+
+  const cred = handyman[type] || {};
+  if (!cred.documentExt) return res.status(404).json({ error: "No document uploaded." });
+
+  const filepath = path.join(PRIVATE_DIR, `${handyman.id}_${type}.${cred.documentExt}`);
+  if (!fs.existsSync(filepath)) return res.status(404).json({ error: "File missing." });
+
+  res.setHeader("Content-Type", DOC_MIME[cred.documentExt] || "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename="${type}.${cred.documentExt}"`);
+  fs.createReadStream(filepath).pipe(res);
+});
+
+// Handyman removes a private credential document.
+app.delete("/api/handymen/:id/credential-doc", (req, res) => {
+  const h = authHandyman(req);
+  if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
+
+  const type = req.query.type || req.body?.type;
+  if (type !== "license" && type !== "insurance") {
+    return res.status(400).json({ error: "Invalid document type." });
+  }
+  const cred = h[type] || {};
+  if (cred.documentExt) {
+    const filepath = path.join(PRIVATE_DIR, `${h.id}_${type}.${cred.documentExt}`);
+    if (fs.existsSync(filepath)) {
+      try { fs.unlinkSync(filepath); } catch {}
+    }
+  }
+  const updated = db.updateHandyman(h.id, {
+    [type]: { ...cred, documentExt: "" },
+  });
+  res.json({ ok: true, hasDocument: !!updated[type].documentExt });
 });
 
 // Handyman permanently deletes their own account (profile + login).

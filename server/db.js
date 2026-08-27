@@ -79,6 +79,22 @@ export function createHandyman(fields) {
     yearsExperience: fields.yearsExperience || null,
     licensed: !!fields.licensed,
     insured: !!fields.insured,
+    // Self-reported license & insurance. Text fields are public (license number
+    // is a public credential); uploaded documents are kept private.
+    license: {
+      status: "", // "yes" | "no" | "na"
+      number: "",
+      type: "",
+      state: "CA",
+      expiration: "",
+      documentExt: "", // set when a private document is uploaded
+    },
+    insurance: {
+      status: "", // "yes" | "no"
+      company: "",
+      expiration: "",
+      documentExt: "",
+    },
     serviceAreas: fields.serviceAreas || "",
     // Whether the handyman is currently taking new requests (toggle in their dashboard).
     available: true,

@@ -20,6 +20,15 @@
     .lightbox-nav:hover { background:rgba(255,255,255,.3); }
     .lightbox-nav.prev { left:20px; }
     .lightbox-nav.next { right:20px; }
+    .trust-badges { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .trust-wrap { position:relative; }
+    .trust-badge { border:1px solid var(--line); background:#f4f7ff; color:#1a4fb0; font-weight:700; font-size:.82rem; padding:5px 12px; border-radius:999px; cursor:pointer; }
+    .trust-badge.insured { background:#eaf7ef; color:#1c8a4b; }
+    .trust-badge:hover { filter:brightness(.97); }
+    .trust-pop { display:none; position:absolute; top:calc(100% + 6px); left:0; z-index:50; min-width:220px; background:#fff; border:1px solid var(--line); border-radius:12px; box-shadow:0 14px 34px rgba(24,40,72,.18); padding:12px 14px; }
+    .trust-row { display:flex; justify-content:space-between; gap:14px; padding:3px 0; font-size:.9rem; }
+    .trust-row span { color:var(--muted); }
+    .trust-hint { color:var(--muted); font-size:.78rem; margin-top:6px; }
   </style>
 </head>
 <body>
@@ -158,6 +167,72 @@
       }
     }
 
+    // Builds clickable Licensed/Insured badges. Clicking one toggles a small
+    // dropdown with the details (license number links to the CSLB lookup).
+    function buildTrustBadges(h) {
+      const lic = h.license || {};
+      const ins = h.insurance || {};
+      if (!lic.active && !ins.active) return null;
+
+      const wrap = el("div", { class: "trust-badges" });
+
+      const closeAll = () => wrap.querySelectorAll(".trust-pop").forEach((p) => (p.style.display = "none"));
+
+      if (lic.active) {
+        const rows = [];
+        if (lic.number) {
+          const cslbUrl = (lic.state || "CA").toUpperCase() === "CA"
+            ? `https://www.cslb.ca.gov/OnlineServices/CheckLicenseII/LicenseDetail.aspx?LicNum=${encodeURIComponent(lic.number)}`
+            : null;
+          rows.push(el("div", { class: "trust-row" }, [
+            el("span", {}, "License #"),
+            cslbUrl
+              ? el("a", { href: cslbUrl, target: "_blank", rel: "noopener" }, `${lic.number} ↗`)
+              : el("strong", {}, lic.number),
+          ]));
+        }
+        if (lic.type) rows.push(el("div", { class: "trust-row" }, [el("span", {}, "Type"), el("strong", {}, lic.type)]));
+        if (lic.state) rows.push(el("div", { class: "trust-row" }, [el("span", {}, "State"), el("strong", {}, lic.state)]));
+        if (lic.expiration) rows.push(el("div", { class: "trust-row" }, [el("span", {}, "Expires"), el("strong", {}, lic.expiration)]));
+        if ((lic.state || "CA").toUpperCase() === "CA" && lic.number) {
+          rows.push(el("div", { class: "trust-hint" }, "Verify anytime on the CSLB website."));
+        }
+        rows.push(el("div", { class: "trust-hint" }, "Self-reported by the handyman."));
+
+        const pop = el("div", { class: "trust-pop" }, rows);
+        const badge = el("button", { class: "trust-badge licensed", type: "button" }, "🛡️ Licensed");
+        badge.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const open = pop.style.display === "block";
+          closeAll();
+          pop.style.display = open ? "none" : "block";
+        });
+        wrap.append(el("div", { class: "trust-wrap" }, [badge, pop]));
+      }
+
+      if (ins.active) {
+        const rows = [];
+        if (ins.company) rows.push(el("div", { class: "trust-row" }, [el("span", {}, "Insurer"), el("strong", {}, ins.company)]));
+        if (ins.expiration) rows.push(el("div", { class: "trust-row" }, [el("span", {}, "Valid through"), el("strong", {}, ins.expiration)]));
+        if (!rows.length) rows.push(el("div", { class: "trust-row" }, [el("strong", {}, "Carries liability insurance")]));
+        rows.push(el("div", { class: "trust-hint" }, "Self-reported by the handyman."));
+
+        const pop = el("div", { class: "trust-pop" }, rows);
+        const badge = el("button", { class: "trust-badge insured", type: "button" }, "✓ Insured");
+        badge.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const open = pop.style.display === "block";
+          closeAll();
+          pop.style.display = open ? "none" : "block";
+        });
+        wrap.append(el("div", { class: "trust-wrap" }, [badge, pop]));
+      }
+
+      // Close popovers when clicking elsewhere.
+      document.addEventListener("click", closeAll);
+      return wrap;
+    }
+
     function renderProfile(h) {
       const av = avatarEl(h, "width:96px;height:96px;font-size:2.25rem");
       const badge = !h.ready
@@ -185,6 +260,7 @@
           ]),
         ]),
         el("div", { class: "tags" }, (h.services || []).map((s) => el("span", { class: "tag" }, s))),
+        buildTrustBadges(h),
         h.bio ? el("p", { style: "color:var(--muted);margin:6px 0 0" }, h.bio) : null,
         el("div", { class: "hm-meta" }, [
           h.hourlyRate

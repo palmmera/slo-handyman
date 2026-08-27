@@ -202,6 +202,12 @@
             ]),
           ]),
           tags,
+          (() => {
+            const bits = [];
+            if (h.license && h.license.active) bits.push(el("span", { class: "trust-chip licensed" }, "🛡️ Licensed"));
+            if (h.insurance && h.insurance.active) bits.push(el("span", { class: "trust-chip insured" }, "✓ Insured"));
+            return bits.length ? el("div", { class: "trust-chips" }, bits) : null;
+          })(),
           h.portfolio && h.portfolio.length > 0 
             ? el("div", { style: "margin-top:6px;font-size:.85rem;color:var(--muted)" }, `📸 ${h.portfolio.length} photo${h.portfolio.length > 1 ? 's' : ''}`)
             : null,

@@ -49,6 +49,8 @@
     .portfolio-thumb .add-icon { font-size:2rem; font-weight:300; color:var(--muted); }
     .portfolio-delete { position:absolute; top:4px; right:4px; width:24px; height:24px; border-radius:50%; background:rgba(0,0,0,.7); color:#fff; border:none; font-size:1.2rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
     .portfolio-delete:hover { background:rgba(0,0,0,.9); }
+    .cred-details { margin-top:10px; }
+    .cred-details .row2 { margin-bottom:12px; }
   </style>
 </head>
 <body>
@@ -238,6 +240,15 @@
         ]));
         card.append(el("p", { style: "color:var(--muted);margin:.3em 0 10px;font-size:.9rem" },
           "This is what customers see when they view your profile."));
+        const lic = h.license || {};
+        const ins = h.insurance || {};
+        const licSummary = lic.status === "yes"
+          ? `Licensed${lic.number ? ` · #${lic.number}` : ""}${lic.expiration ? ` · exp ${lic.expiration}` : ""}`
+          : lic.status === "na" ? "Not applicable"
+          : lic.status === "no" ? "No" : "Not set";
+        const insSummary = ins.status === "yes"
+          ? `Insured${ins.company ? ` · ${ins.company}` : ""}${ins.expiration ? ` · exp ${ins.expiration}` : ""}`
+          : ins.status === "no" ? "No" : "Not set";
         const rows = [
           ["Name", h.name || "—"],
           ["City", h.city || "—"],
@@ -246,6 +257,8 @@
           ["Phone", h.phone || "—"],
           ["Email", h.email || "—"],
           ["About", h.bio || "—"],
+          ["License", licSummary],
+          ["Insurance", insSummary],
         ];
         for (const [k, v] of rows) {
           card.append(el("div", { class: "prow" }, [
@@ -394,6 +407,154 @@
         portfolioGrid,
       ]);
 
+      // --- License & Insurance section ---
+      const lic = h.license || {};
+      const ins = h.insurance || {};
+
+      function readFileForUpload(file) {
+        // Images get compressed; PDFs are sent as-is.
+        if (file.type === "application/pdf") {
+          return new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.onerror = reject;
+            r.readAsDataURL(file);
+          });
+        }
+        return compressImage(file, 1400, 0.85);
+      }
+
+      // Builds an optional private-document uploader for a credential type.
+      function buildDocUploader(type, hasDocument) {
+        const msg = el("div", { class: "hint" });
+        const fileIn = el("input", { type: "file", accept: "application/pdf,image/png,image/jpeg,image/webp", style: "display:none" });
+        const chooseBtn = el("button", { type: "button", class: "btn secondary", style: "padding:6px 12px;font-size:.85rem" },
+          hasDocument ? "Replace document" : "Upload document (optional)");
+        const viewLink = el("a", {
+          href: `/api/handymen/${id}/credential-doc?type=${type}${token ? "&token=" + encodeURIComponent(token) : ""}`,
+          target: "_blank",
+          class: "btn secondary",
+          style: `padding:6px 12px;font-size:.85rem;margin-left:8px;${hasDocument ? "" : "display:none"}`,
+        }, "View");
+        const removeBtn = el("button", { type: "button", class: "btn secondary", style: `padding:6px 12px;font-size:.85rem;margin-left:8px;${hasDocument ? "" : "display:none"}` }, "Remove");
+
+        chooseBtn.addEventListener("click", () => fileIn.click());
+        fileIn.addEventListener("change", async () => {
+          const file = fileIn.files && fileIn.files[0];
+          if (!file) return;
+          msg.className = "hint";
+          msg.textContent = "Uploading…";
+          try {
+            const dataUrl = await readFileForUpload(file);
+            const res = await fetch(`/api/handymen/${id}/credential-doc${tokenQ()}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type, image: dataUrl }),
+            });
+            const out = await res.json();
+            if (!res.ok) throw new Error(out.error || "Upload failed.");
+            msg.textContent = "Document saved ✓";
+            chooseBtn.textContent = "Replace document";
+            viewLink.style.display = "";
+            removeBtn.style.display = "";
+          } catch (ex) {
+            msg.className = "notice error";
+            msg.textContent = ex.message;
+          } finally {
+            fileIn.value = "";
+          }
+        });
+        removeBtn.addEventListener("click", async () => {
+          if (!confirm("Remove this document?")) return;
+          try {
+            const res = await fetch(`/api/handymen/${id}/credential-doc?type=${type}${token ? "&token=" + encodeURIComponent(token) : ""}`, { method: "DELETE" });
+            const out = await res.json();
+            if (!res.ok) throw new Error(out.error || "Couldn't remove.");
+            msg.className = "hint";
+            msg.textContent = "Document removed.";
+            chooseBtn.textContent = "Upload document (optional)";
+            viewLink.style.display = "none";
+            removeBtn.style.display = "none";
+          } catch (ex) {
+            msg.className = "notice error";
+            msg.textContent = ex.message;
+          }
+        });
+
+        return el("div", { style: "margin-top:8px" }, [
+          el("div", { style: "display:flex;align-items:center;flex-wrap:wrap;gap:0" }, [chooseBtn, viewLink, removeBtn, fileIn]),
+          msg,
+        ]);
+      }
+
+      // License inputs
+      const licStatusIn = el("select", { class: "input" }, [
+        el("option", { value: "" }, "Select…"),
+        el("option", { value: "yes" }, "Yes"),
+        el("option", { value: "no" }, "No"),
+        el("option", { value: "na" }, "Not applicable to my services"),
+      ]);
+      licStatusIn.value = lic.status || "";
+      const licNumberIn = el("input", { class: "input", value: lic.number || "", placeholder: "e.g. 1234567" });
+      const licTypeIn = el("input", { class: "input", value: lic.type || "", placeholder: "e.g. C-33 Painting" });
+      const licStateIn = el("input", { class: "input", value: lic.state || "CA", placeholder: "CA" });
+      const licExpIn = el("input", { class: "input", type: "date", value: lic.expiration || "" });
+      const licDetails = el("div", { class: "cred-details" }, [
+        el("div", { class: "row2" }, [field("License number", licNumberIn), field("License type/category", licTypeIn)]),
+        el("div", { class: "row2" }, [field("State issued", licStateIn), field("Expiration date", licExpIn)]),
+        buildDocUploader("license", lic.hasDocument),
+      ]);
+      const syncLic = () => { licDetails.style.display = licStatusIn.value === "yes" ? "block" : "none"; };
+      licStatusIn.addEventListener("change", syncLic);
+      syncLic();
+
+      // Insurance inputs
+      const insStatusIn = el("select", { class: "input" }, [
+        el("option", { value: "" }, "Select…"),
+        el("option", { value: "yes" }, "Yes"),
+        el("option", { value: "no" }, "No"),
+      ]);
+      insStatusIn.value = ins.status || "";
+      const insCompanyIn = el("input", { class: "input", value: ins.company || "", placeholder: "Insurance company name" });
+      const insExpIn = el("input", { class: "input", type: "date", value: ins.expiration || "" });
+      const insDetails = el("div", { class: "cred-details" }, [
+        el("div", { class: "row2" }, [field("Insurance company", insCompanyIn), field("Policy expiration date", insExpIn)]),
+        buildDocUploader("insurance", ins.hasDocument),
+      ]);
+      const syncIns = () => { insDetails.style.display = insStatusIn.value === "yes" ? "block" : "none"; };
+      insStatusIn.addEventListener("change", syncIns);
+      syncIns();
+
+      const credentialsSection = el("div", { style: "margin:20px 0;padding-top:16px;border-top:1px solid var(--line)" }, [
+        el("label", { style: "display:block;font-weight:700;margin-bottom:2px" }, "License & insurance"),
+        el("p", { class: "hint", style: "margin:0 0 10px" },
+          "Optional. Completing these shows a trust badge on your profile so customers can verify you."),
+        field("Do you hold a valid professional or contractor license?", licStatusIn),
+        licDetails,
+        el("div", { style: "height:12px" }),
+        field("Do you currently carry liability insurance?", insStatusIn),
+        insDetails,
+        el("div", { class: "notice info", style: "margin-top:12px;font-size:.85rem" },
+          "Your uploaded documents will not be publicly displayed. They may be reviewed for verification purposes or shared with a customer or property manager only with your permission. Your license number may be shown publicly so customers can verify it."),
+      ]);
+
+      function getCredentials() {
+        return {
+          license: {
+            status: licStatusIn.value,
+            number: licNumberIn.value,
+            type: licTypeIn.value,
+            state: licStateIn.value,
+            expiration: licExpIn.value,
+          },
+          insurance: {
+            status: insStatusIn.value,
+            company: insCompanyIn.value,
+            expiration: insExpIn.value,
+          },
+        };
+      }
+
       const nameIn = el("input", { class: "input", value: h.name || "" });
 
       const cityIn = el("input", { class: "input", value: h.city || "" });
@@ -412,6 +573,7 @@
       form.append(field("Services", servicesIn, "Separate with commas"));
       form.append(field("Phone", phoneIn));
       form.append(field("About you", bioIn));
+      form.append(credentialsSection);
 
       const err = el("div", {});
       const save = el("button", { class: "btn block", type: "submit" }, "Save changes");
@@ -439,6 +601,14 @@
           });
           const out = await res.json();
           if (!res.ok) throw new Error(out.error || "Couldn't save.");
+          // Save license & insurance details alongside the profile.
+          const credRes = await fetch(`/api/handymen/${id}/credentials${tokenQ()}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(getCredentials()),
+          });
+          const credOut = await credRes.json();
+          if (!credRes.ok) throw new Error(credOut.error || "Couldn't save license/insurance.");
           load();
         } catch (ex) {
           err.append(el("div", { class: "notice error" }, ex.message));
