@@ -173,6 +173,15 @@ export function createJob(fields) {
     declinedAt: null,
     workDoneAt: null,
     releasedAt: null,
+    // Auto-release: once the handyman marks work done, funds release to them
+    // after this time unless the customer releases sooner or reports a problem.
+    autoReleaseAt: null,
+    autoReleased: false, // true if released by the scheduler rather than the customer
+    reminderSentAt: null, // one reminder is sent before auto-release
+    // Dispute: customer reported a problem, which pauses auto-release.
+    disputed: false,
+    disputedAt: null,
+    disputeNote: "",
     // Private token: the customer's key to manage this booking (release + review).
     reviewToken: crypto.randomBytes(16).toString("hex"),
     rating: null, // 1-5 once reviewed

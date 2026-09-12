@@ -60,15 +60,32 @@
       render(job);
     }
 
+    function fmtDeadline(ts) {
+      if (!ts) return "";
+      try {
+        return new Date(ts).toLocaleString("en-US", {
+          weekday: "long", month: "long", day: "numeric",
+          hour: "numeric", minute: "2-digit",
+        });
+      } catch { return ""; }
+    }
+
     function statusNotice(job) {
+      if (job.disputed && (job.status === "accepted" || job.status === "work_done"))
+        return el("div", { class: "notice warn" }, "You reported a problem with this booking. The payment is paused and we'll be in touch to help sort it out.");
       if (job.status === "paid")
         return el("div", { class: "notice info" }, "Payment received and held safely. Waiting for your handyman to accept the job.");
       if (job.status === "accepted")
         return el("div", { class: "notice info" }, `${job.handyman?.name || "Your handyman"} accepted the job! Your payment stays held safely — release it once the work is finished.`);
       if (job.status === "declined")
         return el("div", { class: "notice warn" }, "Your handyman couldn't take this job, so your payment has been fully refunded. Feel free to book another handyman.");
-      if (job.status === "work_done")
-        return el("div", { class: "notice warn" }, `${job.handyman?.name || "Your handyman"} marked the work as done. If you're satisfied, release the payment below.`);
+      if (job.status === "work_done") {
+        const deadline = fmtDeadline(job.autoReleaseAt);
+        const extra = deadline
+          ? ` If you do nothing, the payment will automatically release on ${deadline}.`
+          : "";
+        return el("div", { class: "notice warn" }, `${job.handyman?.name || "Your handyman"} marked the work as done. If you're satisfied, release the payment below.${extra}`);
+      }
       if (job.status === "completed")
         return el("div", { class: "notice ok" }, "Completed — payment released. Thank you!");
       return el("div", { class: "notice info" }, "Booking created.");
@@ -99,8 +116,8 @@
       price.append(el("div", { class: "row total" }, [el("span", {}, "Total paid"), el("span", {}, money(job.totalCharged))]));
       root.append(price);
 
-      // Release action (escrow)
-      if (job.status === "accepted" || job.status === "work_done") {
+      // Release action (escrow) — hidden once a problem has been reported.
+      if ((job.status === "accepted" || job.status === "work_done") && !job.disputed) {
         const card = el("div", { class: "form-card", style: "text-align:center;margin-top:8px" });
         card.append(
           el("h2", { style: "margin:0 0 6px" }, "Is the job done?"),
@@ -136,6 +153,68 @@
       if (job.status === "completed") {
         renderReview(job);
       }
+
+      // Quiet footer: contact the handyman first, report a problem as a last
+      // resort. Kept small and out of the way so it isn't a reflexive click.
+      if ((job.status === "accepted" || job.status === "work_done") && !job.disputed) {
+        renderTrouble(job);
+      }
+    }
+
+    // Small, low-key "contact handyman first / report a problem" footer.
+    function renderTrouble(job) {
+      const hmName = job.handyman?.name || "your handyman";
+      const hmEmail = job.handyman?.email || "";
+      const msg = el("div", { style: "margin-top:8px" });
+
+      const reportLink = el(
+        "a",
+        { href: "#", style: "color:#9ca3af;text-decoration:underline;cursor:pointer" },
+        "report a problem"
+      );
+      reportLink.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const note = prompt(
+          `Please contact ${hmName} first if you haven't already. If it's still unresolved, tell us briefly what's wrong (optional). This pauses the payment while we look into it.`
+        );
+        if (note === null) return; // cancelled
+        reportLink.textContent = "Reporting…";
+        try {
+          const res = await fetch(`/api/jobs/${id}/report-problem`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token, note }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "Couldn't submit your report.");
+          load();
+        } catch (err) {
+          reportLink.textContent = "report a problem";
+          msg.innerHTML = "";
+          msg.append(el("div", { class: "notice error" }, err.message));
+        }
+      });
+
+      const line = [];
+      line.push("Not happy with the work? Contact ");
+      if (hmEmail) {
+        line.push(
+          el("a", { href: `mailto:${hmEmail}`, style: "color:#6b7280;text-decoration:underline" }, `${hmName} (${hmEmail})`)
+        );
+      } else {
+        line.push(hmName);
+      }
+      line.push(" first — most issues are a quick fix. If it stays unresolved, ");
+      line.push(reportLink);
+      line.push(".");
+
+      const foot = el(
+        "div",
+        { style: "max-width:440px;margin:26px auto 20px;text-align:center;color:#9ca3af;font-size:.82em;line-height:1.6" },
+        line
+      );
+      foot.append(msg);
+      root.append(foot);
     }
 
     function renderReview(job) {

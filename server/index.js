@@ -23,6 +23,10 @@ const PORT = process.env.PORT || 3000;
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const BOOKING_FEE = Number(process.env.BOOKING_FEE || 5);
 const COMMISSION_PERCENT = Number(process.env.COMMISSION_PERCENT || 5);
+// After the handyman marks a job done, funds auto-release to them this many
+// hours later unless the customer releases sooner or reports a problem.
+const AUTO_RELEASE_HOURS = Number(process.env.AUTO_RELEASE_HOURS || 72);
+const AUTO_RELEASE_MS = AUTO_RELEASE_HOURS * 60 * 60 * 1000;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-me-to-a-secret";
 
 // Social sign-in client IDs (optional). Buttons only appear when these are set.
@@ -315,6 +319,123 @@ async function notifyHandymanReleased(job) {
     await sendEmail({ to: handyman.email, subject, text, html });
   } catch (err) {
     console.error("Release notification failed:", err.message);
+  }
+}
+
+// Formats an auto-release timestamp into a friendly date for emails/pages.
+function formatDeadline(ts) {
+  if (!ts) return "";
+  try {
+    return new Date(ts).toLocaleString("en-US", {
+      weekday: "long", month: "long", day: "numeric",
+      hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles",
+    });
+  } catch {
+    return new Date(ts).toString();
+  }
+}
+
+// Customer: the handyman marked the work done. Nudge them to review + release,
+// and tell them when the payment will auto-release if they do nothing.
+async function notifyCustomerWorkDone(job) {
+  try {
+    if (!job.customerEmail) return;
+    const name = job.handymanName || "Your handyman";
+    const link = customerBookingUrl(job);
+    const service = job.service || "your job";
+    const deadline = formatDeadline(job.autoReleaseAt);
+    const subject = `${name} marked your job complete — please review`;
+
+    const text = [
+      `Hi ${job.customerName || "there"},`,
+      "",
+      `${name} marked "${service}" as complete. If you're happy with the work, please release the payment.`,
+      "",
+      `If we don't hear from you, the payment will automatically release to ${name} on ${deadline}.`,
+      "",
+      "If something's wrong, open your booking and tap \"Report a problem\" — that pauses the payment while we look into it.",
+      "",
+      "Review and release here:",
+      link,
+      "",
+      "— SLO Handyman",
+    ].join("\n");
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+        <h2 style="margin:0 0 8px">Your job was marked complete</h2>
+        <p style="margin:0 0 14px">Hi ${escapeHtml(job.customerName || "there")}, ${escapeHtml(name)} marked <strong>${escapeHtml(service)}</strong> as complete.</p>
+        <p style="margin:0 0 14px;color:#374151">If you're happy with the work, please release the payment. If we don't hear from you, it will automatically release on <strong>${escapeHtml(deadline)}</strong>.</p>
+        <p style="margin:0 0 16px;color:#374151">If something's wrong, open your booking and tap <strong>Report a problem</strong> — that pauses the payment while we look into it.</p>
+        <p style="margin:0 0 22px">${emailButton(link, "Review my booking")}</p>
+        <p style="margin:0;color:#9ca3af;font-size:13px">— SLO Handyman</p>
+      </div>`;
+
+    await sendEmail({ to: job.customerEmail, subject, text, html });
+  } catch (err) {
+    console.error("Work-done notification failed:", err.message);
+  }
+}
+
+// Customer: a single reminder shortly before the payment auto-releases.
+async function notifyCustomerReleaseReminder(job) {
+  try {
+    if (!job.customerEmail) return;
+    const name = job.handymanName || "your handyman";
+    const link = customerBookingUrl(job);
+    const service = job.service || "your job";
+    const deadline = formatDeadline(job.autoReleaseAt);
+    const subject = `Reminder: payment for "${service}" releases soon`;
+
+    const text = [
+      `Hi ${job.customerName || "there"},`,
+      "",
+      `Just a reminder — the payment for "${service}" will automatically release to ${name} on ${deadline}.`,
+      "",
+      "If you're happy with the work, you can release it now. If something's wrong, tap \"Report a problem\" on your booking to pause it.",
+      "",
+      link,
+      "",
+      "— SLO Handyman",
+    ].join("\n");
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+        <h2 style="margin:0 0 8px">Payment releases soon</h2>
+        <p style="margin:0 0 14px">Hi ${escapeHtml(job.customerName || "there")}, the payment for <strong>${escapeHtml(service)}</strong> will automatically release to ${escapeHtml(name)} on <strong>${escapeHtml(deadline)}</strong>.</p>
+        <p style="margin:0 0 16px;color:#374151">If you're happy, you can release it now. If something's wrong, tap <strong>Report a problem</strong> on your booking to pause it.</p>
+        <p style="margin:0 0 22px">${emailButton(link, "Review my booking")}</p>
+        <p style="margin:0;color:#9ca3af;font-size:13px">— SLO Handyman</p>
+      </div>`;
+
+    await sendEmail({ to: job.customerEmail, subject, text, html });
+  } catch (err) {
+    console.error("Release reminder failed:", err.message);
+  }
+}
+
+// Admin: a customer reported a problem — auto-release is paused for this job.
+async function notifyAdminDispute(job, note) {
+  try {
+    const subject = `⚠️ Problem reported on booking "${job.service || "job"}"`;
+    const lines = [
+      `A customer reported a problem. Auto-release is paused for this job.`,
+      "",
+      `Job: ${job.service || "—"} (${job.id})`,
+      `Customer: ${job.customerName || "—"} · ${job.customerEmail || "—"} · ${job.customerPhone || "—"}`,
+      `Handyman: ${job.handymanName || "—"}`,
+      `Amount held: $${(job.totalChargedCents / 100).toFixed(2)}`,
+      note ? `Note: ${note}` : "No note provided.",
+    ];
+    await sendEmail({
+      to: CONTACT_EMAIL,
+      subject,
+      text: lines.join("\n"),
+      html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#1a2233">${lines.map((l) => `<p style="margin:2px 0">${escapeHtml(l)}</p>`).join("")}</div>`,
+      replyTo: job.customerEmail || undefined,
+    });
+  } catch (err) {
+    console.error("Dispute notification failed:", err.message);
   }
 }
 
@@ -950,7 +1071,13 @@ app.post("/api/handymen/:id/jobs/:jobId/work-done", (req, res) => {
   if (job.status !== "accepted") {
     return res.status(400).json({ error: "Only accepted, in-progress jobs can be marked as done." });
   }
-  const updated = db.updateJob(job.id, { status: "work_done", workDoneAt: Date.now() });
+  const now = Date.now();
+  const updated = db.updateJob(job.id, {
+    status: "work_done",
+    workDoneAt: now,
+    autoReleaseAt: now + AUTO_RELEASE_MS,
+  });
+  notifyCustomerWorkDone(updated).catch((e) => console.error(e));
   res.json({ ok: true, status: updated.status });
 });
 
@@ -1574,11 +1701,39 @@ app.get("/api/jobs/:id", (req, res) => {
     handymanPayout: job.handymanPayoutCents / 100,
     rating: job.rating,
     reviewNote: job.reviewNote,
+    autoReleaseAt: job.autoReleaseAt || null,
+    disputed: !!job.disputed,
     handyman: handyman
       ? { name: handyman.name, phone: handyman.phone, email: handyman.email }
       : null,
   });
 });
+
+// Transfers the held payout to the handyman and marks the job completed. Used by
+// both the customer's manual release and the automatic 72h release scheduler.
+async function releaseJobPayment(job, { auto = false } = {}) {
+  const handyman = db.getHandyman(job.handymanId);
+  if (!handyman || !handyman.stripeAccountId) {
+    throw new Error("The handyman's payout account isn't set up.");
+  }
+  const transfer = await stripe.transfers.create({
+    amount: job.handymanPayoutCents,
+    currency: "usd",
+    destination: handyman.stripeAccountId,
+    transfer_group: job.id,
+    // Pull from the specific charge so it works even before the balance settles.
+    ...(job.stripeChargeId ? { source_transaction: job.stripeChargeId } : {}),
+    metadata: { jobId: job.id, auto: String(auto) },
+  });
+  const updated = db.updateJob(job.id, {
+    status: "completed",
+    releasedAt: Date.now(),
+    autoReleased: auto,
+    stripeTransferId: transfer.id,
+  });
+  notifyHandymanReleased(updated).catch((e) => console.error(e));
+  return updated;
+}
 
 // Customer releases the held payment to the handyman once the job is done.
 app.post("/api/jobs/:id/release", async (req, res) => {
@@ -1590,31 +1745,33 @@ app.post("/api/jobs/:id/release", async (req, res) => {
     return res.status(400).json({ error: "This booking isn't in a state that can be released." });
   }
   if (!requireStripe(res)) return;
-  const handyman = db.getHandyman(job.handymanId);
-  if (!handyman || !handyman.stripeAccountId) {
-    return res.status(400).json({ error: "The handyman's payout account isn't set up." });
-  }
   try {
-    const transfer = await stripe.transfers.create({
-      amount: job.handymanPayoutCents,
-      currency: "usd",
-      destination: handyman.stripeAccountId,
-      transfer_group: job.id,
-      // Pull from the specific charge so it works even before the balance settles.
-      ...(job.stripeChargeId ? { source_transaction: job.stripeChargeId } : {}),
-      metadata: { jobId: job.id },
-    });
-    const updated = db.updateJob(job.id, {
-      status: "completed",
-      releasedAt: Date.now(),
-      stripeTransferId: transfer.id,
-    });
-    notifyHandymanReleased(updated).catch((e) => console.error(e));
+    const updated = await releaseJobPayment(job, { auto: false });
     res.json({ ok: true, status: updated.status });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Customer reports a problem, which pauses the automatic release so a human can
+// look into it. Funds stay held until resolved.
+app.post("/api/jobs/:id/report-problem", (req, res) => {
+  const job = db.getJob(req.params.id);
+  if (!authCustomer(req, job)) {
+    return res.status(401).json({ error: "Invalid or missing booking link." });
+  }
+  if (job.status !== "accepted" && job.status !== "work_done") {
+    return res.status(400).json({ error: "This booking isn't in a state that can be disputed." });
+  }
+  const note = String((req.body && req.body.note) || "").trim().slice(0, 1000);
+  const updated = db.updateJob(job.id, {
+    disputed: true,
+    disputedAt: Date.now(),
+    disputeNote: note,
+  });
+  notifyAdminDispute(updated, note).catch((e) => console.error(e));
+  res.json({ ok: true });
 });
 
 // --- Custom job requests ("Describe your job") ----------------------------
@@ -1829,9 +1986,62 @@ app.post("/api/contact", async (req, res) => {
 // Send anything else to the SPA-ish static pages.
 app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
+// --- Auto-release scheduler ------------------------------------------------
+// Once an hour, look for jobs the handyman marked done that the customer never
+// released. If 72h have passed (and no problem was reported), release the funds
+// automatically. A single reminder email goes out ~24h before the deadline.
+const REMINDER_LEAD_MS = 24 * 60 * 60 * 1000;
+
+async function processAutoReleases() {
+  if (!stripe) return;
+  let jobs;
+  try {
+    jobs = db.listJobs();
+  } catch (e) {
+    console.error("Auto-release: couldn't read jobs:", e.message);
+    return;
+  }
+  const now = Date.now();
+  for (const job of jobs) {
+    if (job.status !== "work_done" || job.disputed) continue;
+
+    // Backfill a deadline for any legacy job that predates this feature.
+    let deadline = job.autoReleaseAt;
+    if (!deadline) {
+      deadline = (job.workDoneAt || now) + AUTO_RELEASE_MS;
+      db.updateJob(job.id, { autoReleaseAt: deadline });
+    }
+
+    if (now >= deadline) {
+      try {
+        await releaseJobPayment(job, { auto: true });
+        console.log(`Auto-released job ${job.id} to ${job.handymanName || job.handymanId}`);
+      } catch (e) {
+        console.error(`Auto-release failed for ${job.id}:`, e.message);
+      }
+      continue;
+    }
+
+    // Send a single reminder in the final stretch before auto-release.
+    if (!job.reminderSentAt && now >= deadline - REMINDER_LEAD_MS) {
+      try {
+        await notifyCustomerReleaseReminder(job);
+        db.updateJob(job.id, { reminderSentAt: now });
+      } catch (e) {
+        console.error(`Reminder failed for ${job.id}:`, e.message);
+      }
+    }
+  }
+}
+
+// Run shortly after startup, then hourly.
+setTimeout(() => { processAutoReleases().catch((e) => console.error(e)); }, 30 * 1000);
+setInterval(() => { processAutoReleases().catch((e) => console.error(e)); }, 60 * 60 * 1000);
+
 app.listen(PORT, () => {
   console.log(`\n  SLO Handyman running at ${BASE_URL}`);
   console.log(`  Booking fee: $${BOOKING_FEE}  |  Commission: ${COMMISSION_PERCENT}%`);
+  console.log(`  Auto-release: ${AUTO_RELEASE_HOURS}h after work marked done`);
   console.log(
     stripe
       ? "  Stripe: connected \u2713\n"
