@@ -21,18 +21,24 @@ What you know:
 - Do not invent prices, availability, guarantees, license status, or arrival times. If you do not know, say the handyman will confirm that.
 - If the person is off topic, answer in one sentence only when it is about this site, then return to the quote.
 
-Quote order, one question at a time. Call the matching tool as soon as you have the answer:
-1. What they need done. Call start_quote with their description.
-2. First name, phone, and email. Call save_contact.
-3. Confirm the category if you are unsure, then save_category. Categories must be exactly one of the list above.
-4. Town or ZIP in San Luis Obispo County. Call save_place.
-5. Timing: today, week, flexible, or a specific date as YYYY-MM-DD. Call save_timing.
-6. Call match_handyman. Tell them the handyman's name and town. If they want someone else and others were returned, call choose_handyman with that id. Otherwise call choose_handyman with the first id.
-7. When choose_handyman returns a url, tell them you are opening the handyman's page so they can enter the price and card. Do not ask for a card number.`;
+Ask like a person taking a message. Never say that a question is optional, skippable, or not required. Do not list what they can leave out.
+
+Ask one thing at a time, in this order:
+1. What they need done. Call start_quote. If they will not describe the job, explain once that you need that to find someone, and ask again. If they still will not, stop and offer browsing handymen or the typed quote.
+2. Their first name, then their phone, then their email, as separate questions.
+- If they skip the name, continue. Call save_contact with an empty name. Do not comment on the skip.
+- If they skip the phone, say you need a phone number so the handyman can reach them, and ask once more. If they still will not give one, stop and offer browsing or the typed quote.
+- If they give an email, call show_email_spelling, then ask if the spelling in the box is correct. The typed box wins. If they skip the email, call save_contact with no email and continue. Do not comment on the skip.
+3. Category only if the suggestion from start_quote is not confident. If they will not choose, call save_category with that suggestion, or Other, and continue without remark.
+4. Town or ZIP. Call save_place. If it is outside San Luis Obispo County, or they will not say, explain once that you only book jobs in the county and ask again. If they still will not give one, stop and offer browsing or the typed quote.
+5. How soon. If they will not say, call save_timing with urgency flexible and continue without remark.
+
+Then call match_handyman. Tell them the handyman's name and town. If they want someone else and others were returned, call choose_handyman with that id. Otherwise call choose_handyman with the first id. When it returns a url, say you are opening that handyman's page to finish. Do not ask for a card number.`;
 
 const TOOLS = [
   { type: "function", name: "start_quote", description: "Save the job description and start the quote.", parameters: { type: "object", properties: { description: { type: "string" } }, required: ["description"] } },
-  { type: "function", name: "save_contact", description: "Save the customer's name, phone, and email.", parameters: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" } }, required: ["name", "phone", "email"] } },
+  { type: "function", name: "show_email_spelling", description: "Show the heard email in a text box so the customer can correct the spelling.", parameters: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" } }, required: ["name", "phone", "email"] } },
+  { type: "function", name: "save_contact", description: "Save the phone number. Name and email may be empty if the customer skipped them.", parameters: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" } }, required: ["phone"] } },
   { type: "function", name: "save_category", description: "Save the job category.", parameters: { type: "object", properties: { category: { type: "string" } }, required: ["category"] } },
   { type: "function", name: "save_place", description: "Save a San Luis Obispo County town or ZIP.", parameters: { type: "object", properties: { place: { type: "string" } }, required: ["place"] } },
   { type: "function", name: "save_timing", description: "Save how soon the job is needed.", parameters: { type: "object", properties: { urgency: { type: "string", enum: ["today", "week", "flexible", "date"] }, date: { type: "string" } }, required: ["urgency"] } },
@@ -48,11 +54,51 @@ let processor = null;
 let playAt = 0;
 let sources = [];
 let pendingUrl = "";
+let pendingContact = { name: "", phone: "" };
 let panel;
 let statusEl;
 
 function setStatus(text) {
   if (statusEl) statusEl.textContent = text;
+}
+
+function emailInputValue() {
+  const input = panel && panel.querySelector("#talkEmail");
+  return input ? input.value.trim() : "";
+}
+
+function showEmailBox(email) {
+  if (!panel) return;
+  const box = panel.querySelector("#talkEmailBox");
+  const input = panel.querySelector("#talkEmail");
+  if (!box || !input) return;
+  input.value = email;
+  box.hidden = false;
+  input.focus();
+}
+
+function hideEmailBox() {
+  const box = panel && panel.querySelector("#talkEmailBox");
+  if (box) box.hidden = true;
+}
+
+function confirmEmailFromBox() {
+  const email = emailInputValue();
+  if (!email || !email.includes("@")) {
+    setStatus("Type the email, then tap Use this email.");
+    return;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({
+    type: "conversation.item.create",
+    item: {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: `The email spelling is confirmed as ${email}. Please save it and continue.` }],
+    },
+  }));
+  ws.send(JSON.stringify({ type: "response.create" }));
+  setStatus("Email saved. Continuing…");
 }
 
 async function toolCall(name, args) {
@@ -70,7 +116,23 @@ async function toolCall(name, args) {
     token = data.token;
     return { ok: true, suggestedCategory: data.category, confident: data.confident };
   }
-  if (name === "save_contact") return post("/api/assist/contact", args);
+  if (name === "show_email_spelling") {
+    pendingContact = { name: args.name || pendingContact.name, phone: args.phone || pendingContact.phone };
+    showEmailBox(args.email || "");
+    return { ok: true, displayed: args.email || "", message: "The email is on screen. Ask if the spelling is correct. They can type a correction." };
+  }
+  if (name === "save_contact") {
+    const box = panel && panel.querySelector("#talkEmailBox");
+    const typed = box && !box.hidden ? emailInputValue() : "";
+    const email = typed || args.email || "";
+    const saved = await post("/api/assist/contact", {
+      name: args.name || pendingContact.name || "",
+      phone: args.phone || pendingContact.phone,
+      email,
+    });
+    hideEmailBox();
+    return { ...saved, email };
+  }
   if (name === "save_category") return post("/api/assist/category", args);
   if (name === "save_place") return post("/api/assist/place", args);
   if (name === "save_timing") return post("/api/assist/timing", args);
@@ -228,6 +290,8 @@ function stopVoice() {
   stopPlayback();
   if (ws) { ws.close(); ws = null; }
   if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+  hideEmailBox();
+  pendingContact = { name: "", phone: "" };
   const orb = panel && panel.querySelector(".talk-orb");
   if (orb) orb.classList.remove("live");
 }
@@ -241,11 +305,16 @@ function ensurePanel() {
     <h2>Talk through your quote</h2>
     <p class="talk-status" id="talkStatus">Ask a question, or describe the job.</p>
     <div class="talk-orb">${MIC}</div>
+    <div id="talkEmailBox" hidden>
+      <label for="talkEmail" style="font-weight:700;font-size:.9rem">Check the email spelling</label>
+      <input id="talkEmail" class="input" type="email" autocomplete="email" style="margin:8px 0" />
+      <button type="button" class="btn block" id="talkEmailOk">Use this email</button>
+    </div>
     <div class="talk-actions">
       <button type="button" class="btn" id="talkStart">Start talking</button>
       <button type="button" class="btn secondary" id="talkEnd">End</button>
     </div>
-    <p class="hint" style="margin:12px 0 0">San Luis Obispo County. Your card is entered on the next page, not by voice. Prefer to type? <a href="/request">Get a quote</a>.</p>
+    <p class="hint" style="margin:12px 0 0">San Luis Obispo County. Prefer to type? <a href="/request">Get a quote</a>.</p>
   `;
   document.body.append(panel);
   statusEl = panel.querySelector("#talkStatus");
@@ -259,6 +328,7 @@ function ensurePanel() {
       stopVoice();
     }
   });
+  panel.querySelector("#talkEmailOk").addEventListener("click", confirmEmailFromBox);
   panel.querySelector("#talkEnd").addEventListener("click", () => {
     stopVoice();
     panel.hidden = true;

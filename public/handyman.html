@@ -385,6 +385,8 @@
           if (pre.ok) {
             if (info.customerName) form.customerName.value = info.customerName;
             if (info.customerEmail) form.customerEmail.value = info.customerEmail;
+            else form.customerEmail.value = "";
+            if (!info.customerName) form.customerName.value = "";
             if (info.customerPhone) form.customerPhone.value = info.customerPhone;
             if (info.service) form.service.value = info.service;
             if (info.description) form.description.value = info.description;

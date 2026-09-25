@@ -249,9 +249,8 @@ export function createAssistRoutes(app, deps) {
     const name = String(req.body.name || "").trim().slice(0, 80);
     const phone = String(req.body.phone || "").trim().slice(0, 30);
     const email = normalizeEmail(req.body.email || "");
-    if (!name) return res.status(400).json({ error: "Please add your first name." });
     if (!validPhone(phone)) return res.status(400).json({ error: "Please enter a valid phone number." });
-    if (!validEmail(email)) return res.status(400).json({ error: "Please enter a valid email address." });
+    if (email && !validEmail(email)) return res.status(400).json({ error: "Please enter a valid email address." });
     const updated = db.updateJobRequest(request.id, {
       customerName: name,
       customerPhone: phone,
@@ -389,19 +388,23 @@ export function createAssistRoutes(app, deps) {
   });
 
   function ensureCustomer(request, res) {
-    const existing = db.getUserByEmail(request.customerEmail);
+    const email = normalizeEmail(request.customerEmail);
+    const accountEmail = email || `guest+${request.id}@customers.slohandyman.com`;
+    const existing = db.getUserByEmail(accountEmail);
     if (existing) return existing;
     const user = db.createUser({
       role: "customer",
-      name: request.customerName,
-      email: request.customerEmail,
+      name: request.customerName || "Customer",
+      email: accountEmail,
       phone: request.customerPhone,
       provider: "password",
       passwordHash: auth.hashPassword(crypto.randomBytes(24).toString("hex")),
       zip: request.zip || "",
     });
-    const session = db.createSession(user.id);
-    auth.setSessionCookie(res, session.token, { secure: deps.cookieSecure });
+    if (email) {
+      const session = db.createSession(user.id);
+      auth.setSessionCookie(res, session.token, { secure: deps.cookieSecure });
+    }
     return user;
   }
 
