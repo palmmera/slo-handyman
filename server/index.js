@@ -4,7 +4,6 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import Stripe from "stripe";
-import { WebSocketServer, WebSocket as UpstreamWebSocket } from "ws";
 import * as db from "./db.js";
 import * as auth from "./auth.js";
 import { createAssistRoutes } from "./assist.js";
@@ -2125,7 +2124,7 @@ async function processAutoReleases() {
 setTimeout(() => { processAutoReleases().catch((e) => console.error(e)); }, 30 * 1000);
 setInterval(() => { processAutoReleases().catch((e) => console.error(e)); }, 60 * 60 * 1000);
 
-const httpServer = app.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`\n  SLO Handyman running at ${BASE_URL}`);
   console.log(`  Booking fee: $${BOOKING_FEE}  |  Commission: ${COMMISSION_PERCENT}%`);
   console.log(`  Auto-release: ${AUTO_RELEASE_HOURS}h after work marked done`);
@@ -2134,46 +2133,4 @@ const httpServer = app.listen(PORT, () => {
       ? "  Stripe: connected \u2713\n"
       : "  Stripe: NOT configured — add keys to .env to enable payments\n"
   );
-});
-
-// The browser talks to this site, and the site talks to the voice service.
-// A direct browser connection to the voice service fails on some computers.
-const voiceWss = new WebSocketServer({ noServer: true });
-httpServer.on("upgrade", (request, socket, head) => {
-  const pathOnly = (request.url || "").split("?")[0];
-  if (pathOnly !== "/api/voice/live") {
-    socket.destroy();
-    return;
-  }
-  if (!XAI_API_KEY) {
-    socket.destroy();
-    return;
-  }
-  voiceWss.handleUpgrade(request, socket, head, (client) => {
-    const upstream = new UpstreamWebSocket(
-      "wss://api.x.ai/v1/realtime?model=grok-voice-latest",
-      { headers: { Authorization: `Bearer ${XAI_API_KEY}` } }
-    );
-    const closeBoth = () => {
-      if (client.readyState === UpstreamWebSocket.OPEN) client.close();
-      if (upstream.readyState === UpstreamWebSocket.OPEN) upstream.close();
-    };
-    upstream.on("open", () => {
-      client.on("message", (data) => {
-        if (upstream.readyState === UpstreamWebSocket.OPEN) upstream.send(data);
-      });
-    });
-    upstream.on("message", (data) => {
-      if (client.readyState === UpstreamWebSocket.OPEN) client.send(data);
-    });
-    upstream.on("close", closeBoth);
-    upstream.on("error", (err) => {
-      console.error("Voice upstream failed:", err.message);
-      closeBoth();
-    });
-    client.on("close", () => {
-      if (upstream.readyState === UpstreamWebSocket.OPEN) upstream.close();
-    });
-    client.on("error", closeBoth);
-  });
 });

@@ -217,6 +217,14 @@ function floatToBase64(float32) {
 }
 
 async function startVoice() {
+  const secretRes = await fetch("/api/voice/session", { method: "POST" });
+  const secret = await secretRes.json().catch(() => ({}));
+  if (!secretRes.ok || secret.busy) {
+    const err = new Error("busy");
+    err.busy = true;
+    throw err;
+  }
+
   let feeNote = "";
   try {
     const config = await fetch("/api/config").then((r) => r.json());
@@ -234,11 +242,8 @@ async function startVoice() {
   processor.connect(mute);
   mute.connect(audioCtx.destination);
 
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  let opened = false;
-  ws = new WebSocket(`${proto}//${location.host}/api/voice/live`);
+  ws = new WebSocket("wss://api.x.ai/v1/realtime?model=grok-voice-latest", [`xai-client-secret.${secret.token}`]);
   ws.addEventListener("open", () => {
-    opened = true;
     ws.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -301,11 +306,9 @@ async function startVoice() {
   });
 
   ws.addEventListener("close", () => {
-    if (!opened) showBusy();
+    if (statusEl && statusEl.textContent.startsWith("The line is busy")) return;
   });
-  ws.addEventListener("error", () => {
-    if (!opened) showBusy();
-  });
+  ws.addEventListener("error", () => showBusy());
 }
 
 function stopVoice() {
@@ -350,15 +353,9 @@ function ensurePanel() {
     setStatus("Connecting…");
     try { await startVoice(); }
     catch (err) {
-      const mic = err && (err.name === "NotAllowedError" || err.name === "NotFoundError" || err.name === "NotReadableError");
-      if (mic) {
-        setStatus(err.name === "NotAllowedError"
-          ? "Allow the microphone in the browser, then press Start talking again."
-          : "This browser can't use a microphone. Use Get a quote, or choose a handyman.");
-        panel.querySelector("#talkStart").disabled = false;
-      } else {
-        showBusy();
-      }
+      if (err.busy || err.name !== "NotAllowedError") showBusy();
+      else setStatus("Allow the microphone to keep talking, or get a quote instead.");
+      if (!err.busy && err.name === "NotAllowedError") panel.querySelector("#talkStart").disabled = false;
       stopVoice();
     }
   });
