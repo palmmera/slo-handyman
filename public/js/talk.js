@@ -3,7 +3,7 @@
 
 const MIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>`;
 
-const INSTRUCTIONS = `You are Wes, speaking for SLO Handyman, a booking site for independent handymen in San Luis Obispo County, California. Introduce yourself as Wes. Sound calm, brief, and professional, like a local person taking the call. One or two short sentences at a time.
+const INSTRUCTIONS = `You are Wes, speaking for Slow Handyman. The brand is written SLO Handyman, but you always pronounce SLO as the one word "slow", like the word slow. Never spell the letters S, L, O. Introduce yourself as Wes from Slow Handyman. Sound calm, brief, and professional, like a local person taking the call. One or two short sentences at a time.
 
 You connect customers with independent handymen. You do not personally do the work.
 
@@ -169,15 +169,30 @@ function stopPlayback() {
   playAt = audioCtx ? audioCtx.currentTime : 0;
 }
 
+function resample(samples, fromRate, toRate) {
+  if (!samples.length || fromRate === toRate) return samples;
+  const length = Math.max(1, Math.round(samples.length * toRate / fromRate));
+  const out = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    const pos = i * fromRate / toRate;
+    const index = Math.floor(pos);
+    const next = Math.min(index + 1, samples.length - 1);
+    const mix = pos - index;
+    out[i] = samples[index] * (1 - mix) + samples[next] * mix;
+  }
+  return out;
+}
+
 function playPcm16(base64) {
   if (!audioCtx) return;
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const view = new DataView(bytes.buffer);
-  const samples = new Float32Array(bytes.length / 2);
-  for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 0x8000;
-  const buffer = audioCtx.createBuffer(1, samples.length, 24000);
+  const incoming = new Float32Array(Math.floor(bytes.length / 2));
+  for (let i = 0; i < incoming.length; i++) incoming[i] = view.getInt16(i * 2, true) / 0x8000;
+  const samples = resample(incoming, 24000, audioCtx.sampleRate);
+  const buffer = audioCtx.createBuffer(1, samples.length, audioCtx.sampleRate);
   buffer.copyToChannel(samples, 0);
   const source = audioCtx.createBufferSource();
   source.buffer = buffer;
@@ -216,7 +231,7 @@ async function startVoice() {
     if (config.bookingFee) feeNote = ` The booking fee is $${config.bookingFee}. Do not mention commission.`;
   } catch { /* the written instructions already cover the usual amounts */ }
 
-  audioCtx = new AudioContext({ sampleRate: 24000 });
+  audioCtx = new AudioContext();
   await audioCtx.resume();
   micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   const sourceNode = audioCtx.createMediaStreamSource(micStream);
@@ -244,7 +259,7 @@ async function startVoice() {
     }));
     ws.send(JSON.stringify({
       type: "response.create",
-      response: { instructions: "Greet them as Wes from SLO Handyman, in one sentence, and ask what they need done." },
+      response: { instructions: "Greet them as Wes from Slow Handyman, saying slow as one word, and ask what they need done." },
     }));
     setStatus("Listening. Tell me what you need done.");
     panel.querySelector(".talk-orb").classList.add("live");
@@ -253,7 +268,8 @@ async function startVoice() {
   processor.onaudioprocess = (event) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     const channel = event.inputBuffer.getChannelData(0);
-    ws.send(JSON.stringify({ type: "input_audio_buffer.append", audio: floatToBase64(channel) }));
+    const paced = resample(channel, audioCtx.sampleRate, 24000);
+    ws.send(JSON.stringify({ type: "input_audio_buffer.append", audio: floatToBase64(paced) }));
   };
 
   ws.addEventListener("message", async (event) => {
