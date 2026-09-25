@@ -62,6 +62,24 @@ function setStatus(text) {
   if (statusEl) statusEl.textContent = text;
 }
 
+// Microphone problems are the caller's to fix, so they get their own message
+// instead of the "line is busy" fallback (which means our end is unavailable).
+const MIC_HELP = {
+  NotAllowedError: "Allow the microphone to keep talking, or get a quote instead.",
+  PermissionDeniedError: "Allow the microphone to keep talking, or get a quote instead.",
+  NotFoundError: "No microphone was found. Plug one in, or get a quote instead.",
+  DevicesNotFoundError: "No microphone was found. Plug one in, or get a quote instead.",
+  NotReadableError: "Your microphone is in use by another app. Close it and try again.",
+  TrackStartError: "Your microphone is in use by another app. Close it and try again.",
+  SecurityError: "This browser blocked the microphone. Check its site settings for slohandyman.com.",
+};
+
+function micError(message) {
+  const err = new Error(message);
+  err.mic = true;
+  return err;
+}
+
 function showBusy() {
   if (!statusEl) return;
   statusEl.innerHTML = `The line is busy right now. Please <a href="/request">get a quote</a>, or <a href="/#browse">choose a handyman</a> directly.`;
@@ -232,9 +250,18 @@ async function startVoice() {
     if (config.bookingFee) feeNote = ` The booking fee is $${config.bookingFee}. Do not mention commission.`;
   } catch { /* the written instructions already cover the usual amounts */ }
 
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw micError("This browser can't use the microphone. Please get a quote instead.");
+  }
+
   audioCtx = new AudioContext();
   await audioCtx.resume();
-  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    console.error("Microphone failed:", err.name, err.message);
+    throw micError(MIC_HELP[err.name] || "We couldn't reach your microphone. Please get a quote instead.");
+  }
   const sourceNode = audioCtx.createMediaStreamSource(micStream);
   processor = audioCtx.createScriptProcessor(4096, 1, 1);
   const mute = audioCtx.createGain();
@@ -243,10 +270,11 @@ async function startVoice() {
   processor.connect(mute);
   mute.connect(audioCtx.destination);
 
-  // Use URL param for token — more compatible with Safari/Edge than subprotocol with dots
-  const wsUrl = `wss://api.x.ai/v1/realtime?model=grok-voice-latest&client_secret=${encodeURIComponent(secret.token)}`;
-  ws = new WebSocket(wsUrl);
+  // xAI only accepts the client secret through the subprotocol header.
+  ws = new WebSocket("wss://api.x.ai/v1/realtime?model=grok-voice-latest", [`xai-client-secret.${secret.token}`]);
+  let connected = false;
   ws.addEventListener("open", () => {
+    connected = true;
     ws.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -303,21 +331,21 @@ async function startVoice() {
       setStatus("Opening the handyman's page…");
       setTimeout(() => { window.location = url; }, 900);
     } else if (msg.type === "error") {
+      console.error("Voice session error:", msg.error || msg);
       showBusy();
       try { ws.close(); } catch { /* already closing */ }
     }
   });
 
   ws.addEventListener("close", (event) => {
-    console.log("WebSocket closed:", event.code, event.reason);
-    if (statusEl && statusEl.textContent.startsWith("The line is busy")) return;
-    // Code 1006 = abnormal closure (often connection rejected)
-    if (event.code === 1006 || event.code === 1002) {
-      showBusy();
-    }
+    // 1000 is the normal hang-up from stopVoice(); anything else means the
+    // session dropped or the connection was blocked before it opened.
+    if (event.code === 1000) return;
+    console.error(`Voice connection closed: code=${event.code} reason=${event.reason || "(none)"} openedFirst=${connected}`);
+    showBusy();
   });
-  ws.addEventListener("error", (event) => {
-    console.error("WebSocket error:", event);
+  ws.addEventListener("error", () => {
+    console.error(`Voice connection failed before opening=${!connected}. If this browser blocks api.x.ai (extension or tracking protection), the handshake never completes.`);
     showBusy();
   });
 }
@@ -364,10 +392,14 @@ function ensurePanel() {
     setStatus("Connecting…");
     try { await startVoice(); }
     catch (err) {
-      if (err.busy || err.name !== "NotAllowedError") showBusy();
-      else setStatus("Allow the microphone to keep talking, or get a quote instead.");
-      if (!err.busy && err.name === "NotAllowedError") panel.querySelector("#talkStart").disabled = false;
       stopVoice();
+      if (err.mic) {
+        setStatus(err.message);
+        panel.querySelector("#talkStart").disabled = false;
+      } else {
+        if (!err.busy) console.error("Voice start failed:", err);
+        showBusy();
+      }
     }
   });
   panel.querySelector("#talkEmailOk").addEventListener("click", confirmEmailFromBox);
