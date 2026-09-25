@@ -67,6 +67,7 @@
 
     const id = qs("id");
     const canceled = qs("canceled");
+    const assistToken = qs("assist");
     const profileEl = document.getElementById("profile");
     const hireArea = document.getElementById("hireArea");
     const reviewsEl = document.getElementById("reviews");
@@ -85,7 +86,7 @@
       }
       const h = await res.json();
       renderProfile(h);
-      renderHire(h);
+      await renderHire(h);
       loadReviews();
     }
 
@@ -289,7 +290,7 @@
       }
     }
 
-    function renderHire(h) {
+    async function renderHire(h) {
       hireArea.innerHTML = "";
 
       if (canceled) {
@@ -313,8 +314,8 @@
         return;
       }
 
-      // Accounts are required to book — prompt guests to log in or sign up first.
-      if (!me) {
+      // Accounts are required to book, except a quote chat that already collected contact info.
+      if (!me && !assistToken) {
         const next = encodeURIComponent(location.pathname + location.search);
         hireArea.append(el("div", { class: "form-card", style: "margin-top:16px;text-align:center" }, [
           el("h2", { style: "margin-top:0" }, `Book ${h.name}`),
@@ -373,9 +374,27 @@
       hireArea.append(form);
 
       // Prefill identity from the logged-in account.
-      if (me.name) form.customerName.value = me.name;
-      if (me.email) form.customerEmail.value = me.email;
-      if (me.phone) form.customerPhone.value = me.phone;
+      if (me && me.name) form.customerName.value = me.name;
+      if (me && me.email) form.customerEmail.value = me.email;
+      if (me && me.phone) form.customerPhone.value = me.phone;
+
+      if (assistToken) {
+        try {
+          const pre = await fetch(`/api/assist/prefill?token=${encodeURIComponent(assistToken)}`);
+          const info = await pre.json();
+          if (pre.ok) {
+            if (info.customerName) form.customerName.value = info.customerName;
+            if (info.customerEmail) form.customerEmail.value = info.customerEmail;
+            if (info.customerPhone) form.customerPhone.value = info.customerPhone;
+            if (info.service) form.service.value = info.service;
+            if (info.description) form.description.value = info.description;
+            if (info.scheduledFor) form.scheduledFor.value = info.scheduledFor;
+            hireArea.prepend(el("div", { class: "notice info" }, "Your job details are filled in from the quote. Add the price, then pay. The handyman confirms after that."));
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
 
       const hasRate = !!h.hourlyRate;
       const rate = h.hourlyRate || 0;
@@ -450,6 +469,7 @@
           description: form.description.value,
           scheduledFor: form.scheduledFor.value,
           jobAmount: amount,
+          ...(assistToken ? { assistToken } : {}),
         };
         if (!isFlat()) { data.estimatedHours = Number(hoursInput.value); data.hourlyRate = rate; }
         try {

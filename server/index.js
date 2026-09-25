@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import Stripe from "stripe";
 import * as db from "./db.js";
 import * as auth from "./auth.js";
+import { createAssistRoutes } from "./assist.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -561,7 +562,11 @@ async function markSessionPaid(session) {
   });
   // Let the handyman know a new booking is waiting. Best-effort (won't block
   // or fail the payment flow). The status guard above ensures this fires once.
-  notifyHandymanNewBooking(updated).catch((e) => console.error(e));
+  if (updated.requestId) {
+    assist.onPaid(updated).catch((e) => console.error(e));
+  } else {
+    notifyHandymanNewBooking(updated).catch((e) => console.error(e));
+  }
   return updated;
 }
 
@@ -652,6 +657,22 @@ app.get("/api/config", (req, res) => {
 function normalizeEmail(e) {
   return String(e || "").trim().toLowerCase();
 }
+
+const assist = createAssistRoutes(app, {
+  auth,
+  sendEmail,
+  escapeHtml,
+  emailButton,
+  baseUrl: () => BASE_URL,
+  contactEmail: CONTACT_EMAIL,
+  stripe,
+  normalizeEmail,
+  cookieSecure: COOKIE_SECURE,
+  requestPage: path.join(PUBLIC_DIR, "request.html"),
+  requireAdmin,
+  notifyCustomerAccepted,
+  notifyCustomerDeclined,
+});
 
 function startSession(res, user) {
   const session = db.createSession(user.id);
@@ -1022,7 +1043,20 @@ app.post("/api/handymen/:id/jobs/:jobId/accept", (req, res) => {
   if (job.status !== "paid") {
     return res.status(400).json({ error: "Only new, unaccepted bookings can be accepted." });
   }
-  const updated = db.updateJob(job.id, { status: "accepted", acceptedAt: Date.now() });
+  const updated = db.updateJob(job.id, { status: "accepted", acceptedAt: Date.now(), offerDeadlineAt: null });
+  if (job.requestId) {
+    const request = db.getJobRequest(job.requestId);
+    if (request) {
+      db.updateJobRequest(request.id, {
+        status: "accepted",
+        offerHistory: (request.offerHistory || []).map((o) =>
+          o.handymanId === job.handymanId && o.response === "pending"
+            ? { ...o, response: "accepted", respondedAt: Date.now() }
+            : o
+        ),
+      });
+    }
+  }
   notifyCustomerAccepted(updated).catch((e) => console.error(e));
   res.json({ ok: true, status: updated.status });
 });
@@ -1038,6 +1072,17 @@ app.post("/api/handymen/:id/jobs/:jobId/decline", async (req, res) => {
   }
   if (job.status !== "paid") {
     return res.status(400).json({ error: "Only new, unaccepted bookings can be declined." });
+  }
+
+  // Quote-assistant jobs move to the next handyman instead of refunding immediately.
+  if (job.requestId) {
+    try {
+      const updated = await assist.handlePass(job, "declined");
+      return res.json({ ok: true, status: updated.status });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: err.message });
+    }
   }
 
   // Refund the customer's full payment. Money is still in the platform balance
@@ -1437,8 +1482,14 @@ app.delete("/api/handymen/:id", async (req, res) => {
 app.post("/api/checkout", async (req, res) => {
   if (!requireStripe(res)) return;
   try {
-    // Accounts are required to book: the customer must be logged in.
-    const customer = auth.getCurrentUser(req);
+    // Accounts are required to book, unless this checkout continues a quote chat.
+    let assistCtx = null;
+    try {
+      assistCtx = assist.prepareCheckout(req, res);
+    } catch (err) {
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+    const customer = auth.getCurrentUser(req) || (assistCtx && assistCtx.user);
     if (!customer) {
       return res.status(401).json({ error: "Please log in or create an account to book." });
     }
@@ -1498,8 +1549,9 @@ app.post("/api/checkout", async (req, res) => {
       customerEmail: custEmail,
       customerPhone: custPhone,
       service,
-      description,
-      scheduledFor,
+      description: assistCtx ? assistCtx.description : description,
+      scheduledFor: (assistCtx && assistCtx.request.scheduledFor) || scheduledFor,
+      requestId: assistCtx ? assistCtx.request.id : null,
       jobAmountCents,
       bookingFeeCents: BOOKING_FEE_CENTS,
       commissionCents,
@@ -1509,6 +1561,9 @@ app.post("/api/checkout", async (req, res) => {
       handymanPayoutCents,
       totalChargedCents,
     });
+    if (assistCtx) {
+      db.updateJobRequest(assistCtx.request.id, { jobId: job.id, status: "checkout" });
+    }
 
     // ESCROW: charge the full amount to the PLATFORM account (no transfer_data /
     // application_fee). The money is held by us and only transferred to the
@@ -1544,7 +1599,9 @@ app.post("/api/checkout", async (req, res) => {
       },
       metadata: { jobId: job.id },
       success_url: `${BASE_URL}/success.html?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${BASE_URL}/handyman.html?id=${fresh.id}&canceled=1`,
+      cancel_url: assistCtx
+        ? `${BASE_URL}/handyman.html?id=${fresh.id}&assist=${assistCtx.request.accessToken}&canceled=1`
+        : `${BASE_URL}/handyman.html?id=${fresh.id}&canceled=1`,
     });
 
     db.updateJob(job.id, { stripeSessionId: session.id });
@@ -1880,6 +1937,7 @@ app.get("/api/admin/data", (req, res) => {
       timing: r.timing,
       budget: r.budget,
     })),
+    assists: assist.publicList(),
     contacts: db.listContacts().map((c) => ({
       id: c.id,
       date: c.createdAt,

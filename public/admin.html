@@ -98,6 +98,13 @@
       </section>
 
       <section class="section">
+        <h2>Quote chats <span id="assistCount" class="req-count"></span></h2>
+        <p style="color:var(--muted);margin-top:-6px">From the Get a quote chat. Use assign only when a job needs a specific handyman.</p>
+        <div id="assistMsg"></div>
+        <div id="assistsList"></div>
+      </section>
+
+      <section class="section">
         <h2>Job requests <span id="reqCount" class="req-count"></span></h2>
         <p style="color:var(--muted);margin-top:-6px">Leads from the "Describe your job" form. Reach out, then mark them contacted or closed.</p>
         <div id="requestsList"></div>
@@ -339,6 +346,55 @@
       }
     }
 
+    async function assignAssist(id, handymanId) {
+      const host = document.getElementById("assistMsg");
+      host.innerHTML = "";
+      const res = await fetch(`/api/admin/assists/${encodeURIComponent(id)}/assign?token=${encodeURIComponent(adminToken)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handymanId, token: adminToken }),
+      });
+      const out = await res.json().catch(() => ({}));
+      host.append(el("div", { class: res.ok ? "notice ok" : "notice error" }, res.ok ? "Assigned." : (out.error || "Couldn't assign.")));
+      if (res.ok) refresh();
+    }
+
+    function renderAssists(data) {
+      const rows = data.assists || [];
+      document.getElementById("assistCount").textContent = rows.length ? `· ${rows.length}` : "";
+      const list = document.getElementById("assistsList");
+      list.innerHTML = "";
+      if (!rows.length) {
+        list.append(el("div", { class: "notice info" }, "No quote chats yet."));
+        return;
+      }
+      const live = (data.handymen || []).filter((h) => h.ready && h.available);
+      for (const r of rows) {
+        const select = el("select", { class: "input", style: "max-width:220px" }, [
+          el("option", { value: "" }, "Choose handyman"),
+          ...live.map((h) => el("option", { value: h.id }, h.name || h.email)),
+        ]);
+        list.append(el("div", { class: "req" }, [
+          el("div", { class: "top" }, [
+            el("div", { class: "who" }, r.name || "No name yet"),
+            el("div", { class: "when" }, new Date(r.date).toLocaleString()),
+          ]),
+          el("div", { class: "meta" }, [
+            el("span", {}, [el("b", {}, "Status: "), r.status || "—"]),
+            el("span", {}, [el("b", {}, "Category: "), r.category || "—"]),
+            el("span", {}, [el("b", {}, "Town: "), r.town || "—"]),
+            el("span", {}, [el("b", {}, "Assigned: "), r.assignedName || "—"]),
+          ]),
+          el("div", { class: "desc" }, r.description || ""),
+          el("div", { class: "meta" }, `${r.email || ""} ${r.phone || ""}`.trim()),
+          el("div", { class: "actions" }, [
+            select,
+            el("button", { class: "btn tiny", onclick: () => assignAssist(r.id, select.value) }, "Assign"),
+          ]),
+        ]));
+      }
+    }
+
     function render(data) {
       document.getElementById("login").style.display = "none";
       document.getElementById("dash").style.display = "block";
@@ -359,6 +415,7 @@
       }
 
       renderAccounts(data);
+      renderAssists(data);
       renderContacts(data.contacts || []);
       renderRequests(data.requests || []);
 

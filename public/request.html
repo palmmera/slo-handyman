@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Get a quote — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+  <style>
+    .chat-page { max-width: 640px; margin: 0 auto; padding: 18px 16px 32px; min-height: calc(100vh - 140px); display: flex; flex-direction: column; }
+    .chat-log { display: flex; flex-direction: column; gap: 10px; }
+    .bubble { max-width: 92%; padding: 12px 14px; border-radius: 16px; line-height: 1.45; }
+    .bubble.bot { background: #fff; border: 1px solid var(--line); align-self: flex-start; box-shadow: var(--shadow); }
+    .bubble.me { background: var(--brand); color: #fff; align-self: flex-end; }
+    .quick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .quick button, .composer button.send {
+      background: #fff; color: var(--brand); border: 1.5px solid var(--brand);
+      border-radius: 999px; padding: 10px 14px; font-weight: 700; cursor: pointer; font-size: 1rem;
+    }
+    .quick button.primary, .composer button.send { background: var(--brand); color: #fff; }
+    .composer { display: flex; gap: 8px; margin-top: 16px; }
+    .composer input, .composer textarea {
+      flex: 1; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; font-size: 1rem;
+    }
+    .pick { display: flex; gap: 12px; align-items: center; text-align: left; width: 100%;
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; cursor: pointer; }
+    .pick img, .pick .ph { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: #e7e6df; flex: none; }
+    .pick .ph { display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--brand); }
+    .muted-link { background: none; border: none; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: .9rem; padding: 8px 0; }
+    .honeypot { position: absolute; left: -9999px; height: 0; width: 0; overflow: hidden; }
+    @media (max-width: 640px) {
+      .chat-page { padding-bottom: 24px; }
+      .quick button { min-height: 44px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><a href="/#browse">Browse</a></nav>
+    </div>
+  </header>
+  <main class="chat-page">
+    <h1 style="margin:0 0 6px;font-size:1.45rem">Tell us what you need</h1>
+    <p class="sub" style="margin-top:0">San Luis Obispo County. We'll match a local handyman. You only enter the price and card.</p>
+    <div id="log" class="chat-log"></div>
+    <div id="quick" class="quick"></div>
+    <form id="composer" class="composer">
+      <input id="text" class="input" autocomplete="off" placeholder="Type your answer" />
+      <button class="send" type="submit">Send</button>
+    </form>
+    <div class="honeypot" aria-hidden="true"><input id="website" tabindex="-1" autocomplete="off" /></div>
+  </main>
+  <script type="module">
+    const log = document.getElementById("log");
+    const quick = document.getElementById("quick");
+    const form = document.getElementById("composer");
+    const text = document.getElementById("text");
+    let token = "";
+    let step = "describe";
+    let towns = [];
+
+    function bubble(role, html) {
+      const node = document.createElement("div");
+      node.className = "bubble " + (role === "me" ? "me" : "bot");
+      node.innerHTML = html;
+      log.append(node);
+      node.scrollIntoView({ block: "nearest" });
+    }
+    function say(html) { bubble("bot", html); }
+    function mine(text) { bubble("me", escape(text)); }
+    function escape(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+    }
+    function chips(items, onPick) {
+      quick.innerHTML = "";
+      for (const item of items) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = item.label;
+        b.className = item.primary ? "primary" : "";
+        b.addEventListener("click", () => onPick(item));
+        quick.append(b);
+      }
+    }
+    function showComposer(placeholder, show) {
+      form.style.display = show ? "flex" : "none";
+      text.placeholder = placeholder || "Type your answer";
+      if (show) text.focus();
+    }
+
+    async function post(url, body) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, token, website: document.getElementById("website").value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Something went wrong.");
+      return data;
+    }
+
+    function askContact() {
+      step = "contact";
+      say("Thanks. What's your first name, phone, and email? We'll save the request so it isn't lost if you leave.");
+      showComposer("Jane · (805) 555-0123 · jane@email.com", true);
+      chips([], () => {});
+    }
+
+    function askCategory(categories, guess, confident) {
+      step = "category";
+      if (confident) {
+        say(`This sounds like <strong>${escape(guess)}</strong>. Is that right?`);
+        chips(
+          [{ label: `Yes, ${guess}`, value: guess, primary: true }, ...categories.filter((c) => c !== guess).map((c) => ({ label: c, value: c }))],
+          (item) => chooseCategory(item.value, item.label)
+        );
+      } else {
+        say("Which category fits best?");
+        chips(categories.map((c) => ({ label: c, value: c, primary: c === "Repairs" })), (item) => chooseCategory(item.value, item.label));
+      }
+      showComposer("Or type a category", true);
+    }
+
+    async function chooseCategory(value, label) {
+      mine(label);
+      quick.innerHTML = "";
+      const data = await post("/api/assist/category", { category: value });
+      towns = data.towns || [];
+      askPlace();
+    }
+
+    function askPlace() {
+      step = "place";
+      say("Where in San Luis Obispo County is the job? We only serve this county.");
+      chips(towns.map((t) => ({ label: t, value: t })), (item) => sendPlace(item.value));
+      showComposer("Town or ZIP code", true);
+    }
+
+    async function sendPlace(place) {
+      mine(place);
+      quick.innerHTML = "";
+      try {
+        const data = await post("/api/assist/place", { place });
+        say(`${escape(data.town)} is in the county. When do you need this done?`);
+        step = "timing";
+        chips([
+          { label: "Today / ASAP", value: "today", primary: true },
+          { label: "This week", value: "week" },
+          { label: "Flexible", value: "flexible" },
+          { label: "A specific date", value: "date" },
+        ], (item) => sendTiming(item.value, item.label));
+        showComposer("Or type a date, like 2026-10-03", true);
+      } catch (err) {
+        say(escape(err.message));
+        askPlace();
+      }
+    }
+
+    async function sendTiming(urgency, label, date) {
+      mine(label);
+      quick.innerHTML = "";
+      showComposer("", false);
+      await post("/api/assist/timing", { urgency, date });
+      await showMatch();
+    }
+
+    function personCard(h) {
+      const rate = h.hourlyRate ? `$${h.hourlyRate}/hr` : "Rate on request";
+      const stars = h.rating && h.rating.count ? `${h.rating.average} ★ · ${h.rating.count} review${h.rating.count > 1 ? "s" : ""}` : "New on SLO Handyman";
+      const photo = h.photoUrl
+        ? `<img src="${escape(h.photoUrl)}" alt="" />`
+        : `<div class="ph">${escape((h.name || "?").slice(0, 1))}</div>`;
+      const cats = (h.services || []).slice(0, 3).join(", ");
+      return `<button class="pick" data-id="${escape(h.id)}" type="button">${photo}<span><strong>${escape(h.name)}</strong><br><span style="color:#6b7688">${escape(h.city || "SLO County")} · ${escape(cats)}<br>${escape(stars)} · ${escape(rate)}</span></span></button>`;
+    }
+
+    async function showMatch() {
+      say("Matching you with the next available handyman…");
+      const data = await post("/api/assist/match", {});
+      if (!data.pick) {
+        say("Nobody who is taking jobs covers this right now. You can still <a href='/#browse'>browse handymen</a>, and we've noted the request.");
+        return;
+      }
+      const areaNote = data.widened
+        ? "No one lists that town specifically, so this is the next available handyman in the county for this kind of work."
+        : `${escape(data.pick.name)} from ${escape(data.pick.city || "the area")} is next in line for this kind of job.`;
+      say(areaNote);
+      const wrap = document.createElement("div");
+      wrap.className = "bubble bot";
+      wrap.innerHTML = personCard(data.pick);
+      log.append(wrap);
+      wrap.querySelector(".pick").addEventListener("click", () => book(data.pick.id, data.pick.name));
+      if (data.others && data.others.length) {
+        const more = document.createElement("button");
+        more.className = "muted-link";
+        more.type = "button";
+        more.textContent = "See other options";
+        more.addEventListener("click", () => {
+          more.remove();
+          const box = document.createElement("div");
+          box.className = "bubble bot";
+          box.innerHTML = data.others.map(personCard).join("<div style='height:8px'></div>");
+          log.append(box);
+          box.querySelectorAll(".pick").forEach((btn) => {
+            btn.addEventListener("click", () => book(btn.getAttribute("data-id"), btn.innerText.split("\n")[0]));
+          });
+        });
+        log.append(more);
+      }
+    }
+
+    async function book(handymanId, name) {
+      mine(name || "Continue");
+      quick.innerHTML = "";
+      showComposer("", false);
+      say("Taking you to secure checkout. Your details are already filled in — add the price and your card.");
+      const data = await post("/api/assist/choose", { handymanId });
+      window.location = data.url;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const value = text.value.trim();
+      if (!value) return;
+      text.value = "";
+      try {
+        if (step === "describe") {
+          mine(value);
+          showComposer("", false);
+          const data = await post("/api/assist/start", { description: value });
+          token = data.token;
+          askContact();
+          window._guess = data;
+        } else if (step === "contact") {
+          const parts = value.split(/[·,|]/).map((s) => s.trim()).filter(Boolean);
+          let name = parts[0] || "";
+          let phone = "";
+          let email = "";
+          for (const p of parts) {
+            if (p.includes("@")) email = p;
+            else if (p.replace(/\D/g, "").length >= 10) phone = p;
+          }
+          if (!email || !phone) {
+            const bits = value.match(/(\S+@\S+)|(\(?\d[\d\s().-]{8,}\d)/g) || [];
+            for (const b of bits) {
+              if (b.includes("@")) email = b;
+              else phone = b;
+            }
+            name = value.replace(email, "").replace(phone, "").replace(/[·,|]/g, " ").trim().split(/\s+/)[0] || name;
+          }
+          mine(value);
+          await post("/api/assist/contact", { name, phone, email });
+          const g = window._guess || { category: "Repairs", confident: false, categories: [] };
+          const places = await fetch("/api/assist/places").then((r) => r.json());
+          askCategory(g.categories && g.categories.length ? g.categories : places.categories, g.category, g.confident);
+        } else if (step === "category") {
+          const places = await fetch("/api/assist/places").then((r) => r.json());
+          const match = (places.categories || []).find((c) => c.toLowerCase() === value.toLowerCase());
+          if (!match) { say("Please choose one of the categories below."); return; }
+          await chooseCategory(match, match);
+        } else if (step === "place") {
+          await sendPlace(value);
+        } else if (step === "timing") {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(value)) await sendTiming("date", value, value);
+          else say("Choose one of the options above, or type a date as YYYY-MM-DD.");
+        }
+      } catch (err) {
+        say(escape(err.message));
+        showComposer(text.placeholder, true);
+      }
+    });
+
+    say("Hi. What do you need done? Describe it in your own words.");
+    showComposer("For example, a leaking kitchen faucet", true);
+  </script>
+</body>
+</html>

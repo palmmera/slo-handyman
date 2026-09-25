@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.RENDER ? "/data" : path.join(__dirname, "..", "data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 
-const DEFAULT_DATA = { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [] };
+const DEFAULT_DATA = { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [], jobRequests: [], meta: {} };
 
 function ensureFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -33,9 +33,11 @@ function read() {
       sessions: data.sessions || [],
       requests: data.requests || [],
       contacts: data.contacts || [],
+      jobRequests: data.jobRequests || [],
+      meta: data.meta || {},
     };
   } catch {
-    return { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [] };
+    return { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [], jobRequests: [], meta: {} };
   }
 }
 
@@ -184,6 +186,11 @@ export function createJob(fields) {
     disputeNote: "",
     // Private token: the customer's key to manage this booking (release + review).
     reviewToken: crypto.randomBytes(16).toString("hex"),
+    // Set when the booking came from the quote assistant. Used to offer the
+    // same paid job to the next handyman instead of refunding immediately.
+    requestId: fields.requestId || null,
+    offerToken: fields.requestId ? crypto.randomBytes(16).toString("hex") : null,
+    offerDeadlineAt: null,
     rating: null, // 1-5 once reviewed
     reviewNote: "",
     reviewedAt: null,
@@ -413,4 +420,71 @@ export function deleteContact(contactId) {
   const removed = data.contacts.length !== before;
   if (removed) write(data);
   return removed;
+}
+
+// --- Quote assistant requests ---------------------------------------------
+
+export function createJobRequest(fields) {
+  const data = read();
+  const request = {
+    id: id("qr"),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    accessToken: crypto.randomBytes(16).toString("hex"),
+    status: "new",
+    customerName: "",
+    customerPhone: "",
+    customerEmail: "",
+    customerUserId: null,
+    description: fields.description || "",
+    category: "",
+    town: "",
+    zip: "",
+    urgency: "",
+    scheduledFor: "",
+    candidates: [],
+    assignedHandymanId: null,
+    offerHistory: [],
+    jobId: null,
+    transcript: fields.transcript || [],
+    source: "request",
+  };
+  data.jobRequests = data.jobRequests || [];
+  data.jobRequests.push(request);
+  write(data);
+  return request;
+}
+
+export function listJobRequests() {
+  return (read().jobRequests || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+export function getJobRequest(requestId) {
+  return (read().jobRequests || []).find((r) => r.id === requestId) || null;
+}
+
+export function getJobRequestByToken(token) {
+  if (!token) return null;
+  return (read().jobRequests || []).find((r) => r.accessToken === token) || null;
+}
+
+export function updateJobRequest(requestId, updates) {
+  const data = read();
+  data.jobRequests = data.jobRequests || [];
+  const idx = data.jobRequests.findIndex((r) => r.id === requestId);
+  if (idx === -1) return null;
+  data.jobRequests[idx] = { ...data.jobRequests[idx], ...updates, updatedAt: Date.now() };
+  write(data);
+  return data.jobRequests[idx];
+}
+
+export function getMeta() {
+  return { ...(read().meta || {}) };
+}
+
+export function setMeta(updates) {
+  const data = read();
+  data.meta = { ...(data.meta || {}), ...updates };
+  write(data);
+  return data.meta;
 }
