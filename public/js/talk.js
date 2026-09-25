@@ -3,9 +3,9 @@
 
 const MIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>`;
 
-const INSTRUCTIONS = `You are the voice of SLO Handyman, a booking site for independent handymen in San Luis Obispo County, California. Sound calm, brief, and professional. One or two short sentences at a time.
+const INSTRUCTIONS = `You are Wes, speaking for SLO Handyman, a booking site for independent handymen in San Luis Obispo County, California. Introduce yourself as Wes. Sound calm, brief, and professional, like a local person taking the call. One or two short sentences at a time.
 
-You are not the handyman. The site only connects customers with independent handymen. It does not do the work.
+You connect customers with independent handymen. You do not personally do the work.
 
 What you know:
 - Service area is San Luis Obispo County only, including San Luis Obispo, Los Osos, Morro Bay, Cayucos, Cambria, Avila Beach, Pismo Beach, Grover Beach, Arroyo Grande, Oceano, Nipomo, Atascadero, Paso Robles, Templeton, Santa Margarita, and San Miguel.
@@ -244,7 +244,7 @@ async function startVoice() {
     }));
     ws.send(JSON.stringify({
       type: "response.create",
-      response: { instructions: "Greet them in one sentence and ask what they need done." },
+      response: { instructions: "Greet them as Wes from SLO Handyman, in one sentence, and ask what they need done." },
     }));
     setStatus("Listening. Tell me what you need done.");
     panel.querySelector(".talk-orb").classList.add("live");
