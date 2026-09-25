@@ -3,7 +3,7 @@
 
 const MIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>`;
 
-const INSTRUCTIONS = `You are Wes, speaking for Slow Handyman. The brand is written SLO Handyman, but you always pronounce SLO as the one word "slow", like the word slow. Never spell the letters S, L, O. Introduce yourself as Wes from Slow Handyman. Sound calm, brief, and professional, like a local person taking the call. One or two short sentences at a time.
+const INSTRUCTIONS = `You are Celeste, taking calls for Slow Handyman. The brand is written SLO Handyman, but you always pronounce SLO as the one word "slow", like the word slow. Never spell the letters S, L, O. Introduce yourself as Celeste from Slow Handyman. You are not Wes. Sound warm, brief, and professional, like a local person taking the call. One or two short sentences at a time.
 
 You connect customers with independent handymen. You do not personally do the work.
 
@@ -217,14 +217,6 @@ function floatToBase64(float32) {
 }
 
 async function startVoice() {
-  const secretRes = await fetch("/api/voice/session", { method: "POST" });
-  const secret = await secretRes.json().catch(() => ({}));
-  if (!secretRes.ok || secret.busy) {
-    const err = new Error("busy");
-    err.busy = true;
-    throw err;
-  }
-
   let feeNote = "";
   try {
     const config = await fetch("/api/config").then((r) => r.json());
@@ -242,12 +234,15 @@ async function startVoice() {
   processor.connect(mute);
   mute.connect(audioCtx.destination);
 
-  ws = new WebSocket("wss://api.x.ai/v1/realtime?model=grok-voice-latest", [`xai-client-secret.${secret.token}`]);
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  let opened = false;
+  ws = new WebSocket(`${proto}//${location.host}/api/voice/live`);
   ws.addEventListener("open", () => {
+    opened = true;
     ws.send(JSON.stringify({
       type: "session.update",
       session: {
-        voice: "rex",
+        voice: "ara",
         instructions: INSTRUCTIONS + feeNote,
         turn_detection: { type: "server_vad" },
         tools: TOOLS,
@@ -259,7 +254,7 @@ async function startVoice() {
     }));
     ws.send(JSON.stringify({
       type: "response.create",
-      response: { instructions: "Greet them as Wes from Slow Handyman, saying slow as one word, and ask what they need done." },
+      response: { instructions: "Greet them as Celeste from Slow Handyman. Say slow as one word, never as the letters S L O. Say you are Celeste, then ask what they need done." },
     }));
     setStatus("Listening. Tell me what you need done.");
     panel.querySelector(".talk-orb").classList.add("live");
@@ -306,9 +301,11 @@ async function startVoice() {
   });
 
   ws.addEventListener("close", () => {
-    if (statusEl && statusEl.textContent.startsWith("The line is busy")) return;
+    if (!opened) showBusy();
   });
-  ws.addEventListener("error", () => showBusy());
+  ws.addEventListener("error", () => {
+    if (!opened) showBusy();
+  });
 }
 
 function stopVoice() {
@@ -353,9 +350,15 @@ function ensurePanel() {
     setStatus("Connecting…");
     try { await startVoice(); }
     catch (err) {
-      if (err.busy || err.name !== "NotAllowedError") showBusy();
-      else setStatus("Allow the microphone to keep talking, or get a quote instead.");
-      if (!err.busy && err.name === "NotAllowedError") panel.querySelector("#talkStart").disabled = false;
+      const mic = err && (err.name === "NotAllowedError" || err.name === "NotFoundError" || err.name === "NotReadableError");
+      if (mic) {
+        setStatus(err.name === "NotAllowedError"
+          ? "Allow the microphone in the browser, then press Start talking again."
+          : "This browser can't use a microphone. Use Get a quote, or choose a handyman.");
+        panel.querySelector("#talkStart").disabled = false;
+      } else {
+        showBusy();
+      }
       stopVoice();
     }
   });
