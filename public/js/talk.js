@@ -232,7 +232,7 @@ async function startVoice() {
     ws.send(JSON.stringify({
       type: "session.update",
       session: {
-        voice: "eve",
+        voice: "rex",
         instructions: INSTRUCTIONS + feeNote,
         turn_detection: { type: "server_vad" },
         tools: TOOLS,
