@@ -220,6 +220,7 @@ async function startVoice() {
   const secretRes = await fetch("/api/voice/session", { method: "POST" });
   const secret = await secretRes.json().catch(() => ({}));
   if (!secretRes.ok || secret.busy) {
+    console.error("Voice session failed:", secretRes.status, secret);
     const err = new Error("busy");
     err.busy = true;
     throw err;
@@ -242,7 +243,9 @@ async function startVoice() {
   processor.connect(mute);
   mute.connect(audioCtx.destination);
 
-  ws = new WebSocket("wss://api.x.ai/v1/realtime?model=grok-voice-latest", [`xai-client-secret.${secret.token}`]);
+  // Use URL param for token — more compatible with Safari/Edge than subprotocol with dots
+  const wsUrl = `wss://api.x.ai/v1/realtime?model=grok-voice-latest&client_secret=${encodeURIComponent(secret.token)}`;
+  ws = new WebSocket(wsUrl);
   ws.addEventListener("open", () => {
     ws.send(JSON.stringify({
       type: "session.update",
@@ -305,10 +308,18 @@ async function startVoice() {
     }
   });
 
-  ws.addEventListener("close", () => {
+  ws.addEventListener("close", (event) => {
+    console.log("WebSocket closed:", event.code, event.reason);
     if (statusEl && statusEl.textContent.startsWith("The line is busy")) return;
+    // Code 1006 = abnormal closure (often connection rejected)
+    if (event.code === 1006 || event.code === 1002) {
+      showBusy();
+    }
   });
-  ws.addEventListener("error", () => showBusy());
+  ws.addEventListener("error", (event) => {
+    console.error("WebSocket error:", event);
+    showBusy();
+  });
 }
 
 function stopVoice() {
