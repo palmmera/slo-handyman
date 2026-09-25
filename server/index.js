@@ -657,7 +657,7 @@ app.get("/api/config", (req, res) => {
 // Short-lived pass so the browser can open a Grok voice session without the API key.
 app.post("/api/voice/session", async (req, res) => {
   if (!XAI_API_KEY) {
-    return res.status(503).json({ error: "Voice isn't turned on yet. You can still type a quote." });
+    return res.status(503).json({ busy: true });
   }
   try {
     const upstream = await fetch("https://api.x.ai/v1/realtime/client_secrets", {
@@ -671,12 +671,12 @@ app.post("/api/voice/session", async (req, res) => {
     const data = await upstream.json().catch(() => ({}));
     if (!upstream.ok || !data.value) {
       console.error("Voice token failed:", upstream.status, data);
-      return res.status(502).json({ error: "Voice is unavailable right now. Please use the typed quote." });
+      return res.status(502).json({ busy: true });
     }
     res.json({ token: data.value, expiresAt: data.expires_at || null });
   } catch (err) {
     console.error(err);
-    res.status(502).json({ error: "Voice is unavailable right now. Please use the typed quote." });
+    res.status(502).json({ busy: true });
   }
 });
 

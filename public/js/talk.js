@@ -62,6 +62,13 @@ function setStatus(text) {
   if (statusEl) statusEl.textContent = text;
 }
 
+function showBusy() {
+  if (!statusEl) return;
+  statusEl.innerHTML = `The line is busy right now. Please <a href="/request">get a quote</a>, or <a href="/#browse">choose a handyman</a> directly.`;
+  const start = panel && panel.querySelector("#talkStart");
+  if (start) start.disabled = true;
+}
+
 function emailInputValue() {
   const input = panel && panel.querySelector("#talkEmail");
   return input ? input.value.trim() : "";
@@ -197,7 +204,11 @@ function floatToBase64(float32) {
 async function startVoice() {
   const secretRes = await fetch("/api/voice/session", { method: "POST" });
   const secret = await secretRes.json().catch(() => ({}));
-  if (!secretRes.ok) throw new Error(secret.error || "Voice is unavailable.");
+  if (!secretRes.ok || secret.busy) {
+    const err = new Error("busy");
+    err.busy = true;
+    throw err;
+  }
 
   let feeNote = "";
   try {
@@ -273,12 +284,15 @@ async function startVoice() {
       setStatus("Opening the handyman's page…");
       setTimeout(() => { window.location = url; }, 900);
     } else if (msg.type === "error") {
-      setStatus(msg.error?.message || "Voice hit a problem. You can type a quote instead.");
+      showBusy();
+      try { ws.close(); } catch { /* already closing */ }
     }
   });
 
-  ws.addEventListener("close", () => setStatus("The conversation ended."));
-  ws.addEventListener("error", () => setStatus("Couldn't connect. You can type a quote instead."));
+  ws.addEventListener("close", () => {
+    if (statusEl && statusEl.textContent.startsWith("The line is busy")) return;
+  });
+  ws.addEventListener("error", () => showBusy());
 }
 
 function stopVoice() {
@@ -323,8 +337,9 @@ function ensurePanel() {
     setStatus("Connecting…");
     try { await startVoice(); }
     catch (err) {
-      setStatus(err.message || "Microphone or voice is unavailable.");
-      panel.querySelector("#talkStart").disabled = false;
+      if (err.busy || err.name !== "NotAllowedError") showBusy();
+      else setStatus("Allow the microphone to keep talking, or get a quote instead.");
+      if (!err.busy && err.name === "NotAllowedError") panel.querySelector("#talkStart").disabled = false;
       stopVoice();
     }
   });
@@ -353,10 +368,7 @@ function mount() {
     if (!box.hidden) {
       try {
         const config = await fetch("/api/config").then((r) => r.json());
-        if (!config.voiceConfigured) {
-          setStatus("Voice isn't turned on yet. You can still type a quote.");
-          box.querySelector("#talkStart").disabled = true;
-        }
+        if (!config.voiceConfigured) showBusy();
       } catch { /* the start button will report the error */ }
     } else {
       stopVoice();
