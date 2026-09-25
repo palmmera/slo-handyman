@@ -3,7 +3,7 @@
 
 const MIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>`;
 
-const INSTRUCTIONS = `You are Celeste, taking calls for Slow Handyman. The brand is written SLO Handyman, but you always pronounce SLO as the one word "slow", like the word slow. Never spell the letters S, L, O. Introduce yourself as Celeste from Slow Handyman. You are not Wes. Sound warm, brief, and professional, like a local person taking the call. One or two short sentences at a time.
+const INSTRUCTIONS = `You are Wes, speaking for Slow Handyman. The brand is written SLO Handyman, but you always pronounce SLO as the one word "slow", like the word slow. Never spell the letters S, L, O. Introduce yourself as Wes from Slow Handyman. Sound calm, brief, and professional, like a local person taking the call. One or two short sentences at a time.
 
 You connect customers with independent handymen. You do not personally do the work.
 
@@ -242,7 +242,7 @@ async function startVoice() {
     ws.send(JSON.stringify({
       type: "session.update",
       session: {
-        voice: "ara",
+        voice: "rex",
         instructions: INSTRUCTIONS + feeNote,
         turn_detection: { type: "server_vad" },
         tools: TOOLS,
@@ -254,7 +254,7 @@ async function startVoice() {
     }));
     ws.send(JSON.stringify({
       type: "response.create",
-      response: { instructions: "Greet them as Celeste from Slow Handyman. Say slow as one word, never as the letters S L O. Say you are Celeste, then ask what they need done." },
+      response: { instructions: "Greet them as Wes from Slow Handyman, saying slow as one word, and ask what they need done." },
     }));
     setStatus("Listening. Tell me what you need done.");
     panel.querySelector(".talk-orb").classList.add("live");
