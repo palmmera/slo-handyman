@@ -33,6 +33,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-me-to-a-secret";
 // Social sign-in client IDs (optional). Buttons only appear when these are set.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || "";
+const XAI_API_KEY = process.env.XAI_API_KEY || "";
 const COOKIE_SECURE = BASE_URL.startsWith("https://");
 
 const BOOKING_FEE_CENTS = Math.round(BOOKING_FEE * 100);
@@ -649,7 +650,34 @@ app.get("/api/config", (req, res) => {
     city: "San Luis Obispo",
     googleClientId: GOOGLE_CLIENT_ID || null,
     appleClientId: APPLE_CLIENT_ID || null,
+    voiceConfigured: !!XAI_API_KEY,
   });
+});
+
+// Short-lived pass so the browser can open a Grok voice session without the API key.
+app.post("/api/voice/session", async (req, res) => {
+  if (!XAI_API_KEY) {
+    return res.status(503).json({ error: "Voice isn't turned on yet. You can still type a quote." });
+  }
+  try {
+    const upstream = await fetch("https://api.x.ai/v1/realtime/client_secrets", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${XAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ expires_after: { seconds: 600 } }),
+    });
+    const data = await upstream.json().catch(() => ({}));
+    if (!upstream.ok || !data.value) {
+      console.error("Voice token failed:", upstream.status, data);
+      return res.status(502).json({ error: "Voice is unavailable right now. Please use the typed quote." });
+    }
+    res.json({ token: data.value, expiresAt: data.expires_at || null });
+  } catch (err) {
+    console.error(err);
+    res.status(502).json({ error: "Voice is unavailable right now. Please use the typed quote." });
+  }
 });
 
 // --- Authentication (accounts) --------------------------------------------

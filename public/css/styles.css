@@ -373,3 +373,34 @@ textarea { min-height: 90px; resize: vertical; }
   .btn { width: 100%; }
   .hero .cta-row .btn { width: 100%; }
 }
+
+.talk-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1.5px solid var(--brand); background: #fff; color: var(--brand);
+  border-radius: 999px; padding: 6px 12px; font-weight: 700; cursor: pointer;
+  font-size: .92rem; line-height: 1;
+}
+.talk-btn svg { width: 16px; height: 16px; }
+.talk-btn:hover { background: var(--brand); color: #fff; }
+.talk-panel {
+  position: fixed; right: 16px; top: 72px; z-index: 40;
+  width: min(380px, calc(100vw - 24px));
+  background: #fff; border: 1px solid var(--line); border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(24, 40, 72, .16); padding: 18px;
+}
+.talk-panel h2 { margin: 0 0 4px; font-size: 1.15rem; }
+.talk-status { color: var(--muted); margin: 0 0 14px; min-height: 1.4em; }
+.talk-orb {
+  width: 72px; height: 72px; border-radius: 50%; margin: 8px auto 14px;
+  background: #eef1f8; display: flex; align-items: center; justify-content: center;
+  color: var(--brand);
+}
+.talk-orb.live { background: #e7f6ec; color: var(--green); box-shadow: 0 0 0 8px rgba(23, 146, 74, .12); }
+.talk-actions { display: flex; gap: 8px; }
+.talk-actions .btn { width: auto; flex: 1; }
+@media (max-width: 600px) {
+  .talk-btn span { display: none; }
+  .talk-btn { padding: 8px; }
+  .talk-panel { left: 12px; right: 12px; width: auto; top: 64px; }
+  .talk-actions .btn { width: auto; }
+}
