@@ -3,9 +3,7 @@
 A friendly, mobile-first **handyman marketplace** for San Luis Obispo.
 
 - Customers browse local handymen, describe a job, and **pay securely online**.
-- You (the owner) earn from **two revenue streams**:
-  - a **$5 booking fee** the customer pays to hire, and
-  - a **12% commission** taken from the handyman's job payment.
+- You (the owner) earn a **12% commission** taken from the handyman's job payment. Customers pay the job price only — there is no extra booking fee.
 - Handymen get paid out automatically to their bank via **Stripe Connect**.
 
 Both amounts and everything else are configurable in `.env`.
@@ -19,11 +17,9 @@ Example: a customer hires a handyman for a **$200** job.
 | Item | Amount |
 | --- | --- |
 | Job price | $200.00 |
-| Booking fee (customer pays) | $5.00 |
-| **Customer pays total** | **$205.00** |
-| Your booking fee | $5.00 |
+| **Customer pays total** | **$200.00** |
 | Your 12% commission | $24.00 |
-| **You earn** | **$29.00** |
+| **You earn** | **$24.00** |
 | **Handyman receives** | **$176.00** |
 
 Stripe splits this automatically in a single payment — you never manually hold anyone's money.
@@ -84,7 +80,7 @@ The two sides are linked through each job, and **money is held in escrow** until
 customer confirms the work is done.
 
 1. **Handyman joins** → gets a **private dashboard link** (`/pro.html?id=…&token=…`). This token is their password — they bookmark it.
-2. **Customer hires & pays.** They can book by **hours × the handyman's rate** (auto-calculated) or a **flat price**. Their card is charged the job price + your $5 booking fee.
+2. **Customer hires & pays.** They can book by **hours × the handyman's rate** (auto-calculated) or a **flat price**. Their card is charged the job price.
 3. **The money is HELD by the platform (escrow)** — it is *not* sent to the handyman yet. Contact info is exchanged both ways (revealed only after payment): the customer sees the handyman's phone/email on their booking page, and the handyman sees the customer's details in their dashboard.
 4. **Handyman does the work**, then taps **"Mark work as done"** to nudge the customer.
 5. **Customer releases payment.** On their private booking page (`/job.html?id=…&token=…`) they tap **"Job's done — release payment."** *Only then* is the handyman's payout transferred to their Stripe account. This guarantees the handyman isn't paid until the job is done, and protects the customer.
@@ -97,7 +93,7 @@ customer confirms the work is done.
   balance (no `transfer_data`), so funds are held by you.
 - When the customer releases payment, the server creates a **Transfer** to the handyman's
   connected account for their payout, using `source_transaction` (the original charge) so
-  it works even before the balance settles. Your $5 booking fee + 12% commission stay with
+  it works even before the balance settles. Your 12% commission stays with
   you automatically.
 
 > Coordination + release are **in-app** (no emails/SMS yet). To auto-notify both sides

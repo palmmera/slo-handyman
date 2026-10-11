@@ -120,11 +120,11 @@
       <ol>
         <li>The Customer browses Handyman profiles and selects a Handyman who is taking requests and has finished Stripe payout setup.</li>
         <li>The Customer describes the job, may enter a preferred date, and chooses a price: either an estimate based on hours times the Handyman's listed hourly rate, or a flat price the Customer enters.</li>
-        <li>The Customer pays the job price plus a $5 booking fee through Stripe Checkout.</li>
+        <li>The Customer pays the job price through Stripe Checkout. There is no extra booking fee.</li>
         <li>After payment, contact information is shared so the Customer and Handyman can coordinate. The Handyman can accept or decline the booking.</li>
-        <li>If the Handyman declines, the Customer is fully refunded (job price plus the $5 booking fee).</li>
+        <li>If the Handyman declines, the Customer is fully refunded the job price.</li>
         <li>If the Handyman accepts, they perform the work. They may mark the job as done in their dashboard. That does not pay them; it notifies the Customer.</li>
-        <li>When the Customer is satisfied, the Customer releases payment on their booking page. Only then is the Handyman's share transferred to their Stripe connected account.</li>
+        <li>When the Customer is satisfied, the Customer releases payment on their booking page. Only then is the held payment transferred to the Handyman.</li>
         <li><strong>Automatic release.</strong> If the Handyman marks the job as done and the Customer does not release payment or report a problem within 72 hours, the Platform will automatically release the Handyman's payout. We send the Customer an email when the job is marked done and a reminder before the automatic release. If the Customer reports a problem before the 72 hours pass, the automatic release is paused while the issue is reviewed.</li>
         <li>After payment is released, the Customer may leave a 1–5 star rating and an optional written review.</li>
       </ol>
@@ -148,7 +148,7 @@
         and the parties confirm timing with each other.
       </p>
       <p>
-        SLO Handyman does not set job prices (other than our fees in Section 8), does not schedule the
+        SLO Handyman does not set job prices, does not schedule the
         work, and does not decide whether a job was completed correctly.
       </p>
 
@@ -172,17 +172,17 @@
         <li>Treat Customers, their property, and their households respectfully and lawfully.</li>
       </ul>
 
-      <h2>8. Fees: $5 booking fee and 12% commission</h2>
+      <h2>8. Fees for Handymen</h2>
       <p>
-        Each paid booking includes two SLO Handyman fees:
+        Customers pay the job price only. There is no extra customer booking fee at checkout.
+        The following fee applies to Handymen.
       </p>
       <ul>
-        <li><strong>$5 booking fee.</strong> The Customer pays this in addition to the job price at checkout. It is a Platform fee, not part of the Handyman's job amount.</li>
-        <li><strong>12% commission.</strong> SLO Handyman retains 12% of the job price. This comes out of the Handyman's job amount, not as an extra charge on top of what the Customer pays for the job.</li>
+        <li><strong>12% commission.</strong> SLO Handyman retains 12% of the job price from the Handyman's payout. It is not an extra charge on the Customer's card.</li>
       </ul>
       <p>
-        Example: If the job price is $200, the Customer pays $205 ($200 job + $5 booking fee). SLO Handyman
-        retains $5 + $24 (12% of $200). The Handyman's payout after the Customer releases payment is $176.
+        Example: If the job price is $200, the Customer pays $200. SLO Handyman retains $24 (12% of $200).
+        The Handyman's payout after the Customer releases payment is $176.
       </p>
       <p>
         Joining as a Handyman has no signup, monthly, or listing fee. The commission applies to booked jobs
@@ -198,13 +198,13 @@
         and from there to the bank or payout method the Handyman set up with Stripe.
       </p>
       <p>
-        At checkout, the Customer's card is charged the job price plus the $5 booking fee. That charge is
+        At checkout, the Customer's card is charged the job price. That charge is
         made to SLO Handyman's Stripe platform account. The Handyman is not paid at that moment. The funds
         remain with the Platform (processed by Stripe) until either:
       </p>
       <ul>
         <li>the Handyman declines the booking, in which case we refund the Customer's full payment; or</li>
-        <li>the Customer releases payment after the job is accepted, in which case we transfer the Handyman's payout (job price minus the 12% commission) to the Handyman's connected account. The $5 booking fee and the 12% commission stay with SLO Handyman; or</li>
+        <li>the Customer releases payment after the job is accepted, in which case we transfer the held job payment to the Handyman's connected account, less the Handyman platform fee in Section 8; or</li>
         <li>the Handyman marks the job as done and 72 hours pass without the Customer releasing payment or reporting a problem, in which case the Handyman's payout is released automatically on the same terms as a Customer-initiated release.</li>
       </ul>
       <p>
@@ -226,7 +226,7 @@
         handled between the Customer and the Handyman.
       </p>
       <ul>
-        <li><strong>Before the Handyman accepts.</strong> The Handyman may decline. If they decline, the Customer receives a full refund of the job price and the $5 booking fee. Refunds are issued through Stripe and typically appear within a few business days, depending on the Customer's bank or card issuer.</li>
+        <li><strong>Before the Handyman accepts.</strong> The Handyman may decline. If they decline, the Customer receives a full refund of the job price. Refunds are issued through Stripe and typically appear within a few business days, depending on the Customer's bank or card issuer.</li>
         <li><strong>If checkout is abandoned.</strong> Leaving Stripe Checkout without paying does not create a booking and does not charge the card.</li>
         <li><strong>After the Handyman accepts.</strong> The Customer's payment remains held. The Customer should not release payment until the agreed work is finished to their satisfaction. If the Handyman does not show up, does not finish, or the parties disagree, they should communicate directly. Either party may also contact SLO Handyman. While funds are still held and have not been released, we may, at our discretion, refund the Customer if the job will not be completed as booked. We are not obligated to mediate or to issue a refund in every case.</li>
         <li><strong>Automatic release after work is marked done.</strong> Once the Handyman marks the job as done, the Customer has 72 hours to release payment or report a problem before the payout releases automatically (see Section 8). If you are not satisfied, use "Report a problem" on your booking page before the 72 hours pass. Reporting a problem pauses the automatic release so the issue can be reviewed; it does not guarantee a refund.</li>
@@ -330,7 +330,7 @@
         <li>manipulate reviews, ratings, or bookings;</li>
         <li>harass, threaten, discriminate against, or harm another user;</li>
         <li>steal, damage, or misuse another person's property;</li>
-        <li>circumvent fees by taking a paid Platform booking off-Platform in order to avoid the booking fee or commission, when that booking was arranged through SLO Handyman;</li>
+        <li>circumvent Platform fees by taking a paid Platform booking off-Platform, when that booking was arranged through SLO Handyman;</li>
         <li>interfere with the Platform's security, accounts, or payment systems;</li>
         <li>scrape, copy, or misuse other users' contact information for spam or unrelated marketing; or</li>
         <li>use the Platform to offer work you are not legally allowed to perform.</li>
@@ -380,7 +380,7 @@
       <p>
         To the fullest extent permitted by applicable law, our total liability for any claim relating to
         the Platform or a particular booking is limited to the total fees SLO Handyman actually retained
-        from that booking (the $5 booking fee and, if applicable, the 12% commission actually retained
+        from that booking (the Platform fees actually retained
         on that job). If we retained no fees on the transaction at issue, our total liability is limited
         to $50.
       </p>

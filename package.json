@@ -1,7 +1,7 @@
 {
   "name": "slo-handyman",
   "version": "1.0.0",
-  "description": "A friendly handyman marketplace for San Luis Obispo. Customers pay a $5 booking fee and handymen pay a 5% commission, powered by Stripe Connect.",
+  "description": "A friendly handyman marketplace for San Luis Obispo. Handymen pay a 12% commission, powered by Stripe Connect.",
   "type": "module",
   "main": "server/index.js",
   "scripts": {

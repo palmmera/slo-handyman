@@ -22,7 +22,7 @@ if (!fs.existsSync(PRIVATE_DIR)) fs.mkdirSync(PRIVATE_DIR, { recursive: true });
 
 const PORT = process.env.PORT || 3000;
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
-const BOOKING_FEE = Number(process.env.BOOKING_FEE || 5);
+const BOOKING_FEE = 0;
 const COMMISSION_PERCENT = Number(process.env.COMMISSION_PERCENT || 5);
 // After the handyman marks a job done, funds auto-release to them this many
 // hours later unless the customer releases sooner or reports a problem.
@@ -481,6 +481,18 @@ function requireAdmin(req, res) {
   const token = req.query.token || req.headers["x-admin-token"] || req.body?.token;
   if (token !== ADMIN_TOKEN) {
     res.status(401).json({ error: "Wrong password." });
+    return false;
+  }
+  return true;
+}
+
+// Extra confirmation for deleting handyman or customer accounts from admin.
+const ACCOUNT_DELETE_PASSCODE = "5428";
+
+function requireAccountDeletePasscode(req, res) {
+  const code = String(req.body?.passcode ?? req.query.passcode ?? "").trim();
+  if (code !== ACCOUNT_DELETE_PASSCODE) {
+    res.status(403).json({ error: "Wrong passcode. Account was not deleted." });
     return false;
   }
   return true;
@@ -1089,8 +1101,7 @@ app.post("/api/handymen/:id/jobs/:jobId/accept", (req, res) => {
   res.json({ ok: true, status: updated.status });
 });
 
-// Handyman declines a new booking. The customer is fully refunded (job amount +
-// booking fee) since no work will be done.
+// Handyman declines a new booking. The customer is fully refunded since no work will be done.
 app.post("/api/handymen/:id/jobs/:jobId/decline", async (req, res) => {
   const h = authHandyman(req);
   if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
@@ -1505,7 +1516,7 @@ app.delete("/api/handymen/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Hire + pay (Stripe Checkout with $5 fee + commission) ----------------
+// --- Hire + pay (Stripe Checkout; platform keeps commission only) ----------
 
 app.post("/api/checkout", async (req, res) => {
   if (!requireStripe(res)) return;
@@ -1565,8 +1576,8 @@ app.post("/api/checkout", async (req, res) => {
 
     const jobAmountCents = Math.round(amount * 100);
     const commissionCents = Math.round(jobAmountCents * (COMMISSION_PERCENT / 100));
-    const platformTotalCents = BOOKING_FEE_CENTS + commissionCents;
-    const totalChargedCents = jobAmountCents + BOOKING_FEE_CENTS;
+    const platformTotalCents = commissionCents;
+    const totalChargedCents = jobAmountCents;
     const handymanPayoutCents = jobAmountCents - commissionCents;
 
     const job = db.createJob({
@@ -1608,14 +1619,6 @@ app.post("/api/checkout", async (req, res) => {
               description: description || undefined,
             },
             unit_amount: jobAmountCents,
-          },
-          quantity: 1,
-        },
-        {
-          price_data: {
-            currency: "usd",
-            product_data: { name: "Booking fee" },
-            unit_amount: BOOKING_FEE_CENTS,
           },
           quantity: 1,
         },
@@ -1663,7 +1666,6 @@ app.get("/api/session/:sessionId", async (req, res) => {
             totalCharged: finalJob.totalChargedCents / 100,
             bookingFee: finalJob.bookingFeeCents / 100,
             jobAmount: finalJob.jobAmountCents / 100,
-            handymanPayout: finalJob.handymanPayoutCents / 100,
             // The customer's private key to manage this booking (release + review):
             manageToken: paid ? finalJob.reviewToken : null,
           }
@@ -1783,7 +1785,6 @@ app.get("/api/jobs/:id", (req, res) => {
     jobAmount: job.jobAmountCents / 100,
     bookingFee: job.bookingFeeCents / 100,
     totalCharged: job.totalChargedCents / 100,
-    handymanPayout: job.handymanPayoutCents / 100,
     rating: job.rating,
     reviewNote: job.reviewNote,
     autoReleaseAt: job.autoReleaseAt || null,
@@ -1980,6 +1981,7 @@ app.get("/api/admin/data", (req, res) => {
 
 app.delete("/api/admin/handymen/:id", async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  if (!requireAccountDeletePasscode(req, res)) return;
   const h = db.getHandyman(req.params.id);
   if (!h) return res.status(404).json({ error: "Handyman not found." });
   const held = heldJobsForHandyman(h.id);
@@ -1994,6 +1996,7 @@ app.delete("/api/admin/handymen/:id", async (req, res) => {
 
 app.delete("/api/admin/customers/:id", (req, res) => {
   if (!requireAdmin(req, res)) return;
+  if (!requireAccountDeletePasscode(req, res)) return;
   const user = db.getUserById(req.params.id);
   if (!user) return res.status(404).json({ error: "Account not found." });
   if (user.handymanId) {
@@ -2126,7 +2129,7 @@ setInterval(() => { processAutoReleases().catch((e) => console.error(e)); }, 60 
 
 app.listen(PORT, () => {
   console.log(`\n  SLO Handyman running at ${BASE_URL}`);
-  console.log(`  Booking fee: $${BOOKING_FEE}  |  Commission: ${COMMISSION_PERCENT}%`);
+  console.log(`  Commission: ${COMMISSION_PERCENT}% (no customer booking fee)`);
   console.log(`  Auto-release: ${AUTO_RELEASE_HOURS}h after work marked done`);
   console.log(
     stripe

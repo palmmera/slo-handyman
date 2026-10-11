@@ -138,7 +138,7 @@
             el("div", { class: "row" }, [el("span", {}, "Service"), el("span", {}, data.job.service || "—")]),
             data.job.scheduledFor ? el("div", { class: "row" }, [el("span", {}, "Preferred date"), el("span", {}, data.job.scheduledFor)]) : null,
             el("div", { class: "row" }, [el("span", {}, "Job price"), el("span", {}, money(data.job.jobAmount))]),
-            el("div", { class: "row" }, [el("span", {}, "Booking fee"), el("span", {}, money(data.job.bookingFee))]),
+            data.job.bookingFee ? el("div", { class: "row" }, [el("span", {}, "Booking fee"), el("span", {}, money(data.job.bookingFee))]) : null,
             el("div", { class: "row total" }, [el("span", {}, "Total paid"), el("span", {}, money(data.job.totalCharged))]),
           ]));
         }

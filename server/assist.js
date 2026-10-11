@@ -731,6 +731,15 @@ export function createAssistRoutes(app, deps) {
     res.json({ ok: true });
   });
 
+  app.delete("/api/admin/assists/:id", (req, res) => {
+    if (!deps.requireAdmin(req, res)) return;
+    const request = db.getJobRequest(req.params.id);
+    if (!request) return res.status(404).json({ error: "Quote not found." });
+    const removed = db.deleteJobRequest(request.id);
+    if (!removed) return res.status(404).json({ error: "Quote not found." });
+    res.json({ ok: true });
+  });
+
   setInterval(() => { processOffers().catch((e) => console.error(e)); }, 5 * 60 * 1000);
 
   return {

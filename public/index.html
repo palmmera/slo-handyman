@@ -77,7 +77,7 @@
         <div class="step">
           <div class="num">3</div>
           <strong>Pay securely</strong>
-          <p class="sub" style="margin:6px 0 0">A small <span id="feeInline">$5</span> booking fee is added at checkout.</p>
+          <p class="sub" style="margin:6px 0 0">Pay the job price by card. The money is held until the work is done.</p>
         </div>
         <div class="step">
           <div class="num">4</div>
@@ -118,8 +118,6 @@
         getConfig(),
         fetch("/api/handymen").then((r) => r.json()),
       ]);
-
-      document.getElementById("feeInline").textContent = money(config.bookingFee);
 
       if (!config.stripeConfigured) {
         const banner = el("div", { class: "notice warn" },

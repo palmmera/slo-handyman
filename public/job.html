@@ -112,7 +112,7 @@
       if (job.estimatedHours && job.hourlyRate)
         price.append(el("div", { class: "row muted" }, [el("span", {}, `${money(job.hourlyRate)}/hr × ${job.estimatedHours} hr (estimate)`), el("span", {}, "")]));
       price.append(el("div", { class: "row" }, [el("span", {}, "Job price"), el("span", {}, money(job.jobAmount))]));
-      price.append(el("div", { class: "row" }, [el("span", {}, "Booking fee"), el("span", {}, money(job.bookingFee))]));
+      if (job.bookingFee) price.append(el("div", { class: "row" }, [el("span", {}, "Booking fee"), el("span", {}, money(job.bookingFee))]));
       price.append(el("div", { class: "row total" }, [el("span", {}, "Total paid"), el("span", {}, money(job.totalCharged))]));
       root.append(price);
 
@@ -121,7 +121,7 @@
         const card = el("div", { class: "form-card", style: "text-align:center;margin-top:8px" });
         card.append(
           el("h2", { style: "margin:0 0 6px" }, "Is the job done?"),
-          el("p", { class: "hint", style: "margin:0 0 10px" }, `Only release payment once you're happy with the work. ${job.handyman?.name || "Your handyman"} will receive ${money(job.handymanPayout)}.`)
+          el("p", { class: "hint", style: "margin:0 0 10px" }, `Only release payment once you're happy with the work. ${job.handyman?.name || "Your handyman"} is paid after you release.`)
         );
         const btn = el("button", { class: "btn big block" }, "✓ Job's done — release payment");
         const msg = el("div");

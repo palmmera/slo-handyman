@@ -99,7 +99,7 @@
 
       <section class="section">
         <h2>Quote chats <span id="assistCount" class="req-count"></span></h2>
-        <p style="color:var(--muted);margin-top:-6px">From the Get a quote chat. Use assign only when a job needs a specific handyman.</p>
+        <p style="color:var(--muted);margin-top:-6px">From Talk and Get a quote. Use assign only when a job needs a specific handyman. Delete removes the quote chat, not a paid job.</p>
         <div id="assistMsg"></div>
         <div id="assistsList"></div>
       </section>
@@ -169,36 +169,50 @@
       if (text) host.append(el("div", { class: ok ? "notice ok" : "notice error" }, text));
     }
 
+    function askAccountDeletePasscode(message) {
+      const code = window.prompt(message);
+      if (code === null) return null;
+      return String(code).trim();
+    }
+
     async function deleteHandyman(h) {
+      const label = h.name || h.email || "this handyman";
       const heldNote = h.heldJobs
-        ? `\nThis account has ${h.heldJobs} job(s) with payment still held. Delete will be blocked until those are finished or refunded.`
+        ? ` This account has ${h.heldJobs} job(s) with payment still held. Delete will be blocked until those are finished or refunded.`
         : "";
-      if (!confirm(`Delete handyman "${h.name || h.email}"?\n\nThis removes their profile and login from the site.${heldNote}`)) return;
+      const passcode = askAccountDeletePasscode(`To delete handyman "${label}", enter the passcode.${heldNote}`);
+      if (!passcode) return;
       showAccountsMsg("");
       const res = await fetch(`/api/admin/handymen/${encodeURIComponent(h.id)}?token=${encodeURIComponent(adminToken)}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: adminToken, passcode }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) {
         showAccountsMsg(out.error || "Couldn't delete that handyman.", false);
         return;
       }
-      showAccountsMsg(`Removed ${h.name || h.email}.`, true);
+      showAccountsMsg(`Removed ${label}.`, true);
       await refresh();
     }
 
     async function deleteCustomer(u) {
-      if (!confirm(`Delete customer account "${u.name || u.email}"? They will no longer be able to log in.`)) return;
+      const label = u.name || u.email || "this customer";
+      const passcode = askAccountDeletePasscode(`To delete customer "${label}", enter the passcode.`);
+      if (!passcode) return;
       showAccountsMsg("");
       const res = await fetch(`/api/admin/customers/${encodeURIComponent(u.id)}?token=${encodeURIComponent(adminToken)}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: adminToken, passcode }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) {
         showAccountsMsg(out.error || "Couldn't delete that account.", false);
         return;
       }
-      showAccountsMsg(`Removed ${u.name || u.email}.`, true);
+      showAccountsMsg(`Removed ${label}.`, true);
       await refresh();
     }
 
@@ -359,6 +373,19 @@
       if (res.ok) refresh();
     }
 
+    async function deleteAssist(r) {
+      const who = r.name || r.email || r.phone || "this quote";
+      if (!confirm(`Delete the quote chat for ${who}? This does not refund or cancel a paid job.`)) return;
+      const host = document.getElementById("assistMsg");
+      host.innerHTML = "";
+      const res = await fetch(`/api/admin/assists/${encodeURIComponent(r.id)}?token=${encodeURIComponent(adminToken)}`, {
+        method: "DELETE",
+      });
+      const out = await res.json().catch(() => ({}));
+      host.append(el("div", { class: res.ok ? "notice ok" : "notice error" }, res.ok ? "Quote chat deleted." : (out.error || "Couldn't delete that quote.")));
+      if (res.ok) refresh();
+    }
+
     function renderAssists(data) {
       const rows = data.assists || [];
       document.getElementById("assistCount").textContent = rows.length ? `· ${rows.length}` : "";
@@ -390,6 +417,7 @@
           el("div", { class: "actions" }, [
             select,
             el("button", { class: "btn tiny", onclick: () => assignAssist(r.id, select.value) }, "Assign"),
+            el("button", { class: "btn tiny danger", onclick: () => deleteAssist(r) }, "Delete"),
           ]),
         ]));
       }
@@ -403,10 +431,12 @@
       stats.innerHTML = "";
       const cards = [
         ["Total earnings", money(data.totals.earnings)],
-        ["Booking fees", money(data.totals.bookingFees)],
         ["Commission", money(data.totals.commission)],
         ["Jobs paid", String(data.totals.jobsPaid)],
       ];
+      if (data.totals.bookingFees) {
+        cards.splice(1, 0, ["Booking fees (past)", money(data.totals.bookingFees)]);
+      }
       for (const [lbl, val] of cards) {
         stats.append(el("div", { class: "stat" }, [
           el("div", { class: "big" }, val),

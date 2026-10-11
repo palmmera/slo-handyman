@@ -478,6 +478,16 @@ export function updateJobRequest(requestId, updates) {
   return data.jobRequests[idx];
 }
 
+export function deleteJobRequest(requestId) {
+  const data = read();
+  data.jobRequests = data.jobRequests || [];
+  const before = data.jobRequests.length;
+  data.jobRequests = data.jobRequests.filter((r) => r.id !== requestId);
+  const removed = data.jobRequests.length !== before;
+  if (removed) write(data);
+  return removed;
+}
+
 export function getMeta() {
   return { ...(read().meta || {}) };
 }

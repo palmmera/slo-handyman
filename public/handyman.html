@@ -426,17 +426,19 @@
 
       function updateSummary() {
         const amount = currentAmount();
-        const total = amount + config.bookingFee;
-        const payout = Math.max(0, amount - amount * config.commissionPercent / 100);
+        const fee = Number(config.bookingFee) || 0;
+        const total = amount + fee;
         const hrsLine = isFlat() ? "" :
           `<div class="row muted"><span>${money(rate)}/hr × ${Number(hoursInput.value) || 0} hr</span><span></span></div>`;
+        const feeLine = fee
+          ? `<div class="row"><span>Booking fee</span><span>${money(fee)}</span></div>`
+          : "";
         summary.innerHTML = `
           ${hrsLine}
           <div class="row"><span>Job price${isFlat() ? "" : " (estimate)"}</span><span>${money(amount)}</span></div>
-          <div class="row"><span>Booking fee</span><span>${money(config.bookingFee)}</span></div>
+          ${feeLine}
           <div class="row total"><span>You pay today</span><span>${money(total)}</span></div>
-          <div class="row muted"><span>🔒 Held until you release it</span><span></span></div>
-          <div class="row muted"><span>${h.name} gets on release</span><span>${money(payout)}</span></div>
+          <div class="row muted"><span>🔒 Held until you release it after the work is done</span><span></span></div>
         `;
       }
 

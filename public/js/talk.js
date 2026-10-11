@@ -11,12 +11,12 @@ What you know:
 - Service area is San Luis Obispo County only, including San Luis Obispo, Los Osos, Morro Bay, Cayucos, Cambria, Avila Beach, Pismo Beach, Grover Beach, Arroyo Grande, Oceano, Nipomo, Atascadero, Paso Robles, Templeton, Santa Margarita, and San Miguel.
 - Categories: Painting, Plumbing, Electrical, Installation, Repairs, Moving, Pressure Washing, Landscaping, and Other.
 - Customers can browse handymen or get a quote. A quote picks the next available handyman who fits the job and town, so work is shared instead of always going to the same person.
-- The customer pays the job price plus a $5 booking fee by card on Stripe. The money is held. The handyman is not paid when they accept.
+- The customer pays the job price by card on Stripe. There is no extra booking fee. The money is held. The handyman is not paid when they accept.
 - After the handyman marks the work done, the customer releases payment. If they do nothing, it releases automatically after 72 hours. Reporting a problem on the booking page pauses that.
 - If the assigned handyman declines or does not answer, the same paid job is offered to the next handyman. The customer is refunded only if nobody accepts.
 - The customer manages the booking from a private link emailed after a handyman accepts, and shown on the confirmation page. They do not need a password for that link.
 - Joining as a handyman is free at the Become a handyman page. Payouts are through Stripe. Handymen set their own rates. License and insurance are optional and self-reported.
-- Never mention commission, the platform's cut, or how much the handyman is paid. Customers only need the booking fee and that payment is held until the work is done. If asked what the handyman receives, say payout details are in the handyman's own dashboard.
+- Never mention commission, the platform's cut, or how much the handyman is paid. Customers pay the job price only, and payment is held until the work is done. If asked what the handyman receives, say payout details are in the handyman's own dashboard.
 - Contact for the business: 805-323-8127 and slohandyman@smart-folder.com. The contact page is /contact.html. Terms are at /terms.html. FAQ is at /faq.html.
 - Do not invent prices, availability, guarantees, license status, or arrival times. If you do not know, say the handyman will confirm that.
 - If the person is off topic, answer in one sentence only when it is about this site, then return to the quote.
@@ -248,6 +248,7 @@ async function startVoice() {
   try {
     const config = await fetch("/api/config").then((r) => r.json());
     if (config.bookingFee) feeNote = ` The booking fee is $${config.bookingFee}. Do not mention commission.`;
+    else feeNote = " There is no extra booking fee. The customer pays the job price only. Do not mention commission.";
   } catch { /* the written instructions already cover the usual amounts */ }
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
