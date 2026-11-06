@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Post a job — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><a href="/#jobs">Open jobs</a><span id="authNav"></span></nav>
+    </div>
+  </header>
+
+  <main class="container center-narrow">
+    <div class="page-head"><a class="back" href="/">← Home</a></div>
+    <h1 style="margin:.2em 0">Post a job</h1>
+    <p style="color:var(--muted)">Describe the work and the amount you're offering. You pay that amount now. It is held until the work is done. An active handyman who covers your town can take it. If nobody does within 72 hours, you are refunded.</p>
+    <form id="postForm" class="form-card">
+      <div id="formMsg"></div>
+      <div class="field">
+        <label for="name">Your name</label>
+        <input class="input" id="name" name="name" required />
+      </div>
+      <div class="field">
+        <label for="phone">Phone</label>
+        <input class="input" id="phone" name="phone" type="tel" required />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input class="input" id="email" name="email" type="email" />
+      </div>
+      <div class="field">
+        <label for="category">Category</label>
+        <select class="input" id="category" name="category" required></select>
+      </div>
+      <div class="field">
+        <label for="place">Town</label>
+        <select class="input" id="place" name="place" required></select>
+      </div>
+      <div class="field">
+        <label for="description">What needs to be done</label>
+        <textarea class="input" id="description" name="description" rows="5" required placeholder="Example: Remove the old bark in the front yard and trim the shrubs."></textarea>
+      </div>
+      <div class="field">
+        <label for="amount">Amount you're offering</label>
+        <input class="input" id="amount" name="amount" type="number" min="1" step="0.01" required />
+      </div>
+      <button class="btn block" id="payBtn" type="submit">Pay and post</button>
+    </form>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div>SLO Handyman — San Luis Obispo, CA · <a href="/terms.html">Terms &amp; Conditions</a> · <a href="/faq.html">FAQ</a></div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { el, getMe, renderAuthNav, qs } from "/js/common.js";
+    renderAuthNav();
+    const form = document.getElementById("postForm");
+    const msg = document.getElementById("formMsg");
+
+    function show(text, ok) {
+      msg.innerHTML = "";
+      if (text) msg.append(el("div", { class: ok ? "notice ok" : "notice error" }, text));
+    }
+
+    const me = await getMe();
+    if (!me) {
+      location.href = "/login.html?next=/post.html";
+    } else {
+      form.name.value = me.name || "";
+      form.email.value = me.email || "";
+      form.phone.value = me.phone || "";
+      if (qs("canceled")) show("Checkout was cancelled. Your card was not charged.", false);
+      try {
+        const places = await fetch("/api/assist/places").then((r) => r.json());
+        for (const c of places.categories || []) {
+          form.category.append(el("option", { value: c }, c));
+        }
+        form.place.append(el("option", { value: "" }, "Choose a town"));
+        for (const t of places.towns || []) {
+          form.place.append(el("option", { value: t }, t));
+        }
+      } catch {
+        show("Couldn't load towns. Refresh and try again.", false);
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      show("");
+      const btn = document.getElementById("payBtn");
+      btn.disabled = true;
+      btn.textContent = "Opening secure checkout…";
+      try {
+        const res = await fetch("/api/posts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: form.name.value,
+            phone: form.phone.value,
+            email: form.email.value,
+            category: form.category.value,
+            place: form.place.value,
+            description: form.description.value,
+            amount: form.amount.value,
+          }),
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(out.error || "Couldn't start checkout.");
+        location.href = out.url;
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Pay and post";
+        show(err.message, false);
+      }
+    });
+  </script>
+  <script type="module" src="/js/talk.js"></script>
+</body>
+</html>

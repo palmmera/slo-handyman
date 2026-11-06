@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Job posted — SLO Handyman</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="/img/icon.png" />
+  <link rel="apple-touch-icon" href="/img/icon.png" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img class="brand-logo" src="/img/logo-transparent.png" alt="Handyman San Luis Obispo" /></a>
+      <nav class="nav-links"><span id="authNav"></span></nav>
+    </div>
+  </header>
+  <main class="container center-narrow" style="text-align:center">
+    <div id="result"><div class="skeleton">Confirming your post…</div></div>
+  </main>
+  <script type="module">
+    import { el, money, qs, renderAuthNav } from "/js/common.js";
+    renderAuthNav();
+    const result = document.getElementById("result");
+    const sessionId = qs("session_id");
+    if (!sessionId) {
+      result.innerHTML = "";
+      result.append(el("div", { class: "notice error" }, "Missing payment confirmation."));
+    } else {
+      try {
+        const res = await fetch(`/api/posts/confirm?session_id=${encodeURIComponent(sessionId)}`);
+        const data = await res.json();
+        result.innerHTML = "";
+        if (!res.ok || !data.paid) {
+          result.append(el("div", { class: "notice warn" }, "We couldn't confirm the payment yet. If you were charged, the job will appear shortly."));
+        } else {
+          const post = data.post || {};
+          result.append(
+            el("div", { style: "font-size:56px" }, "✅"),
+            el("h1", {}, "Your job is posted"),
+            el("p", { style: "color:var(--muted)" }, `${post.category || "Your job"} in ${post.town || "San Luis Obispo County"} is on the homepage for ${money(post.amount || 0)}. The money is held. If nobody takes it within 72 hours, you are refunded.`),
+            el("a", { class: "btn big", href: "/#jobs" }, "See open jobs"),
+            el("a", { class: "btn secondary", href: "/account.html", style: "margin-top:10px" }, "My bookings"),
+          );
+        }
+      } catch {
+        result.innerHTML = "";
+        result.append(el("div", { class: "notice error" }, "Something went wrong confirming your post."));
+      }
+    }
+  </script>
+  <script type="module" src="/js/talk.js"></script>
+</body>
+</html>

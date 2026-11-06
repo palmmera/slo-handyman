@@ -706,6 +706,45 @@
       });
     }
 
+    function renderOpenPosts(data) {
+      const posts = data.openPosts || [];
+      if (!posts.length || !data.handyman.ready || data.handyman.available === false) return;
+      jobsEl.append(el("h2", { style: "margin:8px 0 12px;text-align:left" }, "Jobs you can take"));
+      for (const p of posts) {
+        const btn = el("button", { class: "btn", style: "margin-top:12px" }, "Take this job");
+        const msg = el("div");
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          btn.textContent = "Taking…";
+          try {
+            const res = await fetch(`/api/posts/${encodeURIComponent(p.id)}/claim`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: token || "" }),
+            });
+            const out = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(out.error || "Couldn't take that job.");
+            location.reload();
+          } catch (err) {
+            btn.disabled = false;
+            btn.textContent = "Take this job";
+            msg.innerHTML = "";
+            msg.append(el("div", { class: "notice error", style: "margin-top:10px" }, err.message));
+          }
+        });
+        jobsEl.append(el("div", { class: "card job", style: "margin-bottom:14px;text-align:left" }, [
+          el("div", { class: "svc" }, `${p.category} · ${p.town}`),
+          el("p", { style: "margin:8px 0 0" }, p.description),
+          el("div", { class: "hm-meta" }, [
+            el("div", { class: "rate" }, [money(p.amount), el("span", {}, " offered")]),
+            el("div", { style: "color:var(--muted);font-size:.85rem" }, `${money(p.payout)} to you when released`),
+          ]),
+          btn,
+          msg,
+        ]));
+      }
+    }
+
     function render(data) {
       document.getElementById("title").textContent = `${data.handyman.name}'s jobs`;
       const jobs = data.jobs;
@@ -755,6 +794,7 @@
       setupDangerZone();
 
       jobsEl.innerHTML = "";
+      renderOpenPosts(data);
       if (!data.handyman.ready) {
         jobsEl.append(el("div", { class: "notice warn" },
           "Finish your Stripe payout setup so customers can hire you."));

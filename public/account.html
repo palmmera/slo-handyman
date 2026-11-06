@@ -58,15 +58,50 @@
       document.getElementById("subtitle").textContent =
         `Signed in as ${user.email || user.name}. All the jobs you've booked, in one place.`;
 
-      const res = await fetch("/api/my/bookings");
-      const data = await res.json();
+      const [bookRes, postRes] = await Promise.all([
+        fetch("/api/my/bookings"),
+        fetch("/api/my/posts"),
+      ]);
+      const data = await bookRes.json();
+      const posted = await postRes.json().catch(() => ({ posts: [] }));
       list.innerHTML = "";
 
+      const mine = (posted.posts || []).filter((p) => p.status === "open" || p.status === "claimed");
+      if (mine.length) {
+        list.append(el("h2", { style: "text-align:left;margin:0 0 10px" }, "Posted jobs"));
+        for (const p of mine) {
+          const card = el("div", { class: "card", style: "margin-bottom:12px;text-align:left" }, [
+            el("div", { class: "svc", style: "font-weight:800" }, `${p.category} · ${p.town}`),
+            el("p", { style: "margin:8px 0" }, p.description),
+            el("div", { class: "meta", style: "color:var(--muted)" }, `${money(p.amount)} held · ${p.status === "open" ? "Waiting for a handyman" : "A handyman took this"}`),
+          ]);
+          if (p.status === "open") {
+            const btn = el("button", { class: "btn secondary", style: "margin-top:10px" }, "Cancel and refund");
+            btn.addEventListener("click", async () => {
+              if (!confirm("Cancel this post and refund the payment?")) return;
+              btn.disabled = true;
+              const res = await fetch(`/api/posts/${encodeURIComponent(p.id)}/cancel`, { method: "POST" });
+              const out = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                btn.disabled = false;
+                alert(out.error || "Couldn't cancel that post.");
+                return;
+              }
+              location.reload();
+            });
+            card.append(btn);
+          }
+          list.append(card);
+        }
+      }
+
       if (!data.bookings || !data.bookings.length) {
-        list.append(el("div", { class: "empty" }, [
-          el("p", {}, "You haven't booked any jobs yet."),
-          el("a", { class: "btn", href: "/" }, "Find a handyman"),
-        ]));
+        if (!mine.length) {
+          list.append(el("div", { class: "empty" }, [
+            el("p", {}, "You haven't booked any jobs yet."),
+            el("a", { class: "btn", href: "/" }, "Find a handyman"),
+          ]));
+        }
         return;
       }
 

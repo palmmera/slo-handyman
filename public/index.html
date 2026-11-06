@@ -32,6 +32,7 @@
         <div class="cta-row">
           <a class="btn big" href="/request">Get a free quote</a>
           <a class="btn secondary big" href="#browse">Find a handyman</a>
+          <a class="btn secondary big" href="/post.html">Post a job</a>
         </div>
 
         <div class="cat-row">
@@ -48,6 +49,14 @@
           -->
 
         </div>
+      </div>
+    </section>
+
+    <section id="jobs" class="section container">
+      <h2>Open jobs</h2>
+      <p class="sub">A customer already paid. An active handyman who does that work in that town can take it.</p>
+      <div id="openJobs" class="grid">
+        <div class="skeleton">Loading jobs…</div>
       </div>
     </section>
 
@@ -108,12 +117,66 @@
   </footer>
 
   <script type="module">
-    import { getConfig, avatarEl, el, money, starsHtml, renderAuthNav } from "/js/common.js";
+    import { getConfig, avatarEl, el, money, starsHtml, renderAuthNav, getMe } from "/js/common.js";
     renderAuthNav();
 
     const list = document.getElementById("list");
+    const openJobs = document.getElementById("openJobs");
+
+    async function loadOpenJobs() {
+      const [postsRes, me] = await Promise.all([
+        fetch("/api/posts").then((r) => r.json()).catch(() => ({ posts: [] })),
+        getMe(),
+      ]);
+      const posts = postsRes.posts || [];
+      openJobs.innerHTML = "";
+      if (!posts.length) {
+        openJobs.append(el("div", { class: "empty" }, [
+          el("p", {}, "No open jobs right now."),
+          el("a", { class: "btn", href: "/post.html" }, "Post a job"),
+        ]));
+        return;
+      }
+      const isHandyman = me && me.role === "handyman" && me.handymanId;
+      for (const p of posts) {
+        const card = el("div", { class: "card", style: "text-align:left" }, [
+          el("div", { style: "font-weight:800" }, `${p.category} · ${p.town}`),
+          el("p", { style: "margin:8px 0;white-space:pre-wrap" }, p.description),
+          el("div", { class: "rate" }, [money(p.amount), el("span", {}, " offered")]),
+        ]);
+        if (isHandyman) {
+          const btn = el("button", { class: "btn", style: "margin-top:12px" }, "Take this job");
+          const msg = el("div");
+          btn.addEventListener("click", async () => {
+            btn.disabled = true;
+            btn.textContent = "Taking…";
+            try {
+              const res = await fetch(`/api/posts/${encodeURIComponent(p.id)}/claim`, { method: "POST" });
+              const out = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(out.error || "Couldn't take that job.");
+              location.href = "/pro.html";
+            } catch (err) {
+              btn.disabled = false;
+              btn.textContent = "Take this job";
+              msg.innerHTML = "";
+              msg.append(el("div", { class: "notice error", style: "margin-top:10px" }, err.message));
+            }
+          });
+          card.append(btn, msg);
+        }
+        openJobs.append(card);
+      }
+      if (!isHandyman) {
+        openJobs.append(el("p", { class: "sub", style: "grid-column:1/-1;margin:0" }, [
+          "Handymen: ",
+          el("a", { href: "/login.html?next=/#jobs" }, "log in"),
+          " to take a job that matches your work and town.",
+        ]));
+      }
+    }
 
     async function load() {
+      loadOpenJobs();
       const [config, handymen] = await Promise.all([
         getConfig(),
         fetch("/api/handymen").then((r) => r.json()),

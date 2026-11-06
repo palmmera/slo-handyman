@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.RENDER ? "/data" : path.join(__dirname, "..", "data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 
-const DEFAULT_DATA = { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [], jobRequests: [], meta: {} };
+const DEFAULT_DATA = { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [], jobRequests: [], posts: [], meta: {} };
 
 function ensureFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -34,10 +34,11 @@ function read() {
       requests: data.requests || [],
       contacts: data.contacts || [],
       jobRequests: data.jobRequests || [],
+      posts: data.posts || [],
       meta: data.meta || {},
     };
   } catch {
-    return { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [], jobRequests: [], meta: {} };
+    return { handymen: [], jobs: [], users: [], sessions: [], requests: [], contacts: [], jobRequests: [], posts: [], meta: {} };
   }
 }
 
@@ -497,4 +498,87 @@ export function setMeta(updates) {
   data.meta = { ...(data.meta || {}), ...updates };
   write(data);
   return data.meta;
+}
+
+// --- Posted jobs (customer pays first, a handyman grabs it) ---------------
+
+export function createPost(fields) {
+  const data = read();
+  const post = {
+    id: id("post"),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    // pending -> checkout not finished
+    // open -> paid and on the homepage
+    // claimed -> a handyman took it (a real job exists)
+    // cancelled / expired -> refunded because nobody should do the work
+    // abandoned -> checkout was left unpaid
+    status: "pending",
+    accessToken: crypto.randomBytes(16).toString("hex"),
+    customerUserId: fields.customerUserId || null,
+    customerName: fields.customerName || "",
+    customerEmail: fields.customerEmail || "",
+    customerPhone: fields.customerPhone || "",
+    description: fields.description || "",
+    category: fields.category || "",
+    town: fields.town || "",
+    zip: fields.zip || "",
+    amountCents: fields.amountCents,
+    commissionCents: fields.commissionCents,
+    platformTotalCents: fields.platformTotalCents,
+    handymanPayoutCents: fields.handymanPayoutCents,
+    totalChargedCents: fields.totalChargedCents,
+    stripeSessionId: fields.stripeSessionId || null,
+    stripePaymentIntentId: null,
+    stripeChargeId: null,
+    stripeRefundId: null,
+    paidAt: null,
+    expiresAt: null,
+    claimedByHandymanId: null,
+    claimedAt: null,
+    jobId: null,
+  };
+  data.posts = data.posts || [];
+  data.posts.push(post);
+  write(data);
+  return post;
+}
+
+export function listPosts() {
+  return (read().posts || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+export function getPost(postId) {
+  return (read().posts || []).find((p) => p.id === postId) || null;
+}
+
+export function getPostBySession(sessionId) {
+  if (!sessionId) return null;
+  return (read().posts || []).find((p) => p.stripeSessionId === sessionId) || null;
+}
+
+export function updatePost(postId, updates) {
+  const data = read();
+  data.posts = data.posts || [];
+  const idx = data.posts.findIndex((p) => p.id === postId);
+  if (idx === -1) return null;
+  data.posts[idx] = { ...data.posts[idx], ...updates, updatedAt: Date.now() };
+  write(data);
+  return data.posts[idx];
+}
+
+// Only one handyman can win. Returns null if the post was already taken.
+export function claimPostIfOpen(postId, updates) {
+  const data = read();
+  data.posts = data.posts || [];
+  const idx = data.posts.findIndex((p) => p.id === postId);
+  if (idx === -1 || data.posts[idx].status !== "open") return null;
+  data.posts[idx] = {
+    ...data.posts[idx],
+    ...updates,
+    status: "claimed",
+    updatedAt: Date.now(),
+  };
+  write(data);
+  return data.posts[idx];
 }

@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import Stripe from "stripe";
 import * as db from "./db.js";
 import * as auth from "./auth.js";
-import { createAssistRoutes } from "./assist.js";
+import { createAssistRoutes, handymanCanTake, CATEGORIES, resolvePlace } from "./assist.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -27,7 +27,10 @@ const COMMISSION_PERCENT = Number(process.env.COMMISSION_PERCENT || 5);
 // After the handyman marks a job done, funds auto-release to them this many
 // hours later unless the customer releases sooner or reports a problem.
 const AUTO_RELEASE_HOURS = Number(process.env.AUTO_RELEASE_HOURS || 72);
+// A paid job post stays on the homepage this long. If nobody takes it, refund.
+const POST_OPEN_HOURS = Number(process.env.POST_OPEN_HOURS || 72);
 const AUTO_RELEASE_MS = AUTO_RELEASE_HOURS * 60 * 60 * 1000;
+const POST_OPEN_MS = POST_OPEN_HOURS * 60 * 60 * 1000;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-me-to-a-secret";
 
 // Social sign-in client IDs (optional). Buttons only appear when these are set.
@@ -554,9 +557,11 @@ function requireStripe(res) {
 }
 
 // Marks a job paid and records the charge id so we can release funds later.
+// A homepage job post uses the same webhook, with no handyman attached yet.
 async function markSessionPaid(session) {
   const job = db.getJobBySession(session.id);
-  if (!job || job.status !== "pending") return job;
+  if (!job) return markPostPaid(session);
+  if (job.status !== "pending") return job;
   let chargeId = null;
   const piId = session.payment_intent;
   try {
@@ -581,6 +586,198 @@ async function markSessionPaid(session) {
     notifyHandymanNewBooking(updated).catch((e) => console.error(e));
   }
   return updated;
+}
+
+async function stripeChargeFromSession(session) {
+  let chargeId = null;
+  const piId = session.payment_intent || null;
+  try {
+    if (stripe && piId) {
+      const pi = await stripe.paymentIntents.retrieve(piId);
+      chargeId = pi.latest_charge || pi.charges?.data?.[0]?.id || null;
+    }
+  } catch (e) {
+    console.error("Could not retrieve payment intent:", e.message);
+  }
+  return { piId, chargeId };
+}
+
+async function markPostPaid(session) {
+  const post = db.getPostBySession(session.id);
+  if (!post || post.status !== "pending") return post;
+  if (session.payment_status && session.payment_status !== "paid") return post;
+  const { piId, chargeId } = await stripeChargeFromSession(session);
+  const opened = db.updatePost(post.id, {
+    status: "open",
+    paidAt: Date.now(),
+    expiresAt: Date.now() + POST_OPEN_MS,
+    stripePaymentIntentId: piId,
+    stripeChargeId: chargeId,
+  });
+  notifyCustomerPostLive(opened).catch((e) => console.error(e));
+  return opened;
+}
+
+async function refundPost(post, status) {
+  if (!post || post.stripeRefundId || (post.status !== "open" && post.status !== "pending")) return post;
+  let refundId = null;
+  if (stripe && post.stripePaymentIntentId) {
+    const refund = await stripe.refunds.create({ payment_intent: post.stripePaymentIntentId });
+    refundId = refund.id;
+  }
+  return db.updatePost(post.id, {
+    status,
+    stripeRefundId: refundId,
+    refundedAt: Date.now(),
+  });
+}
+
+function postPublic(post) {
+  return {
+    id: post.id,
+    category: post.category,
+    town: post.town,
+    description: post.description,
+    amount: post.amountCents / 100,
+    expiresAt: post.expiresAt,
+    createdAt: post.createdAt,
+  };
+}
+
+function handymanForRequest(req) {
+  const token = req.body?.token || req.query?.token || req.headers["x-manage-token"];
+  if (token) {
+    const byToken = db.listHandymen().find((h) => h.manageToken === token);
+    if (byToken) return byToken;
+  }
+  const user = auth.getCurrentUser(req);
+  if (user && user.handymanId) return db.getHandyman(user.handymanId);
+  return null;
+}
+
+async function notifyCustomerPostLive(post) {
+  try {
+    if (!post.customerEmail) return;
+    const when = formatDeadline(post.expiresAt);
+    const amount = `$${(post.amountCents / 100).toFixed(2)}`;
+    const link = `${BASE_URL}/#jobs`;
+    const subject = "Your job is posted";
+    const text = [
+      `Hi ${post.customerName || "there"},`,
+      "",
+      `Your ${post.category || "handyman"} job in ${post.town} is on the SLO Handyman homepage.`,
+      post.description || "",
+      `Amount held: ${amount}`,
+      "",
+      `An active handyman who does this work in ${post.town} can take it. If nobody does by ${when}, we refund you.`,
+      "",
+      "You can cancel it from My bookings until someone takes it.",
+      `${BASE_URL}/account.html`,
+      "",
+      link,
+      "",
+      "— SLO Handyman",
+    ].filter(Boolean).join("\n");
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+        <h2 style="margin:0 0 8px">Your job is posted</h2>
+        <p style="margin:0 0 12px">Hi ${escapeHtml(post.customerName || "there")}, your <strong>${escapeHtml(post.category || "handyman")}</strong> job in ${escapeHtml(post.town)} is on the homepage.</p>
+        <p style="margin:0 0 12px;white-space:pre-wrap">${escapeHtml(post.description || "")}</p>
+        <p style="margin:0 0 12px">Amount held: <strong>${amount}</strong>. If nobody takes it by <strong>${escapeHtml(when)}</strong>, we refund you.</p>
+        <p style="margin:0 0 22px">${emailButton(`${BASE_URL}/account.html`, "My bookings")}</p>
+        <p style="margin:0;color:#9ca3af;font-size:13px">— SLO Handyman</p>
+      </div>`;
+    await sendEmail({ to: post.customerEmail, subject, text, html });
+  } catch (err) {
+    console.error("Post-live email failed:", err.message);
+  }
+}
+
+async function notifyPostClaimed(post, job, handyman) {
+  try {
+    const payout = `$${(job.handymanPayoutCents / 100).toFixed(2)}`;
+    const bookingUrl = customerBookingUrl(job);
+    const dash = `${BASE_URL}/pro.html?id=${handyman.id}&token=${handyman.manageToken}`;
+    if (post.customerEmail) {
+      await sendEmail({
+        to: post.customerEmail,
+        subject: `${handyman.name || "A handyman"} took your job`,
+        text: [
+          `Hi ${post.customerName || "there"},`,
+          "",
+          `${handyman.name || "A handyman"} took your ${post.category || "job"} in ${post.town}. Your payment stays held until the work is done and you release it.`,
+          handyman.phone ? `Phone: ${handyman.phone}` : "",
+          handyman.email ? `Email: ${handyman.email}` : "",
+          "",
+          "Your booking:",
+          bookingUrl,
+          "",
+          "— SLO Handyman",
+        ].filter(Boolean).join("\n"),
+        html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+          <h2 style="margin:0 0 8px">${escapeHtml(handyman.name || "A handyman")} took your job</h2>
+          <p style="margin:0 0 12px">Your payment stays held until the work is done and you release it.</p>
+          <p style="margin:0 0 12px">${handyman.phone ? `Phone: ${escapeHtml(handyman.phone)}<br>` : ""}${handyman.email ? `Email: ${escapeHtml(handyman.email)}` : ""}</p>
+          <p style="margin:0 0 22px">${emailButton(bookingUrl, "View my booking")}</p>
+          <p style="margin:0;color:#9ca3af;font-size:13px">— SLO Handyman</p>
+        </div>`,
+      });
+    }
+    if (handyman.email) {
+      await sendEmail({
+        to: handyman.email,
+        subject: `You took a ${post.category || "job"} in ${post.town}`,
+        text: [
+          `Hi ${handyman.name || "there"},`,
+          "",
+          `You took this job. The customer's payment is held until they release it after the work is done.`,
+          post.description || "",
+          `Customer: ${post.customerName || "—"}`,
+          `Phone: ${post.customerPhone || "—"}`,
+          `Email: ${post.customerEmail || "—"}`,
+          `Your payout when they release: ${payout}`,
+          "",
+          dash,
+          "",
+          "— SLO Handyman",
+        ].filter(Boolean).join("\n"),
+        html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233">
+          <h2 style="margin:0 0 8px">You took a job</h2>
+          <p style="margin:0 0 12px;white-space:pre-wrap">${escapeHtml(post.description || "")}</p>
+          <p style="margin:0 0 12px">${escapeHtml(post.customerName || "Customer")}<br>${escapeHtml(post.customerPhone || "")}<br>${escapeHtml(post.customerEmail || "")}</p>
+          <p style="margin:0 0 12px">Your payout when they release: <strong>${payout}</strong></p>
+          <p style="margin:0 0 22px">${emailButton(dash, "View my jobs")}</p>
+          <p style="margin:0;color:#9ca3af;font-size:13px">— SLO Handyman</p>
+        </div>`,
+      });
+    }
+  } catch (err) {
+    console.error("Post-claimed email failed:", err.message);
+  }
+}
+
+async function notifyPostRefunded(post, why) {
+  try {
+    if (!post.customerEmail) return;
+    const amount = `$${(post.totalChargedCents / 100).toFixed(2)}`;
+    await sendEmail({
+      to: post.customerEmail,
+      subject: why === "expired" ? "Nobody took your job — refund on the way" : "Your job post was cancelled — refund on the way",
+      text: [
+        `Hi ${post.customerName || "there"},`,
+        "",
+        why === "expired"
+          ? `Nobody took your ${post.category || "job"} in ${post.town} in time, so we refunded ${amount}.`
+          : `Your job post was cancelled and we refunded ${amount}.`,
+        "Refunds usually appear within a few business days.",
+        "",
+        "— SLO Handyman",
+      ].join("\n"),
+      html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a2233"><p>${escapeHtml(why === "expired" ? `Nobody took your job in time, so we refunded ${amount}.` : `Your job post was cancelled and we refunded ${amount}.`)} Refunds usually appear within a few business days.</p></div>`,
+    });
+  } catch (err) {
+    console.error("Post refund email failed:", err.message);
+  }
 }
 
 async function syncHandymanStatus(handyman) {
@@ -1016,7 +1213,11 @@ app.get("/api/handymen/:id/jobs", (req, res) => {
   const h = authHandyman(req);
   if (!h) return res.status(401).json({ error: "Invalid or missing access link." });
   const jobs = db.listJobsForHandyman(h.id);
+  const openPosts = db.listPosts().filter((p) =>
+    p.status === "open" && p.expiresAt > Date.now() && handymanCanTake(h, { category: p.category, town: p.town })
+  ).map((p) => ({ ...postPublic(p), payout: (p.handymanPayoutCents || 0) / 100 }));
   res.json({
+    openPosts,
     handyman: {
       id: h.id,
       name: h.name,
@@ -1516,6 +1717,195 @@ app.delete("/api/handymen/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Posted jobs (pay first, then a matching handyman grabs it) ------------
+
+app.get("/api/posts", (req, res) => {
+  const posts = db.listPosts().filter((p) => p.status === "open" && p.expiresAt > Date.now());
+  res.json({ posts: posts.map(postPublic) });
+});
+
+app.get("/api/my/posts", (req, res) => {
+  const user = auth.getCurrentUser(req);
+  if (!user) return res.status(401).json({ error: "Please log in." });
+  const posts = db.listPosts().filter((p) => p.customerUserId === user.id && p.status !== "pending" && p.status !== "abandoned");
+  res.json({
+    posts: posts.map((p) => ({
+      id: p.id,
+      status: p.status,
+      category: p.category,
+      town: p.town,
+      description: p.description,
+      amount: p.amountCents / 100,
+      expiresAt: p.expiresAt,
+      date: p.createdAt,
+      jobId: p.jobId,
+    })),
+  });
+});
+
+app.get("/api/posts/confirm", async (req, res) => {
+  if (!requireStripe(res)) return;
+  try {
+    const session = await stripe.checkout.sessions.retrieve(req.query.session_id);
+    let post = db.getPostBySession(session.id);
+    if (!post) return res.status(404).json({ error: "Post not found." });
+    if (session.payment_status === "paid") post = await markPostPaid(session);
+    res.json({
+      paid: session.payment_status === "paid",
+      post: post ? {
+        status: post.status,
+        category: post.category,
+        town: post.town,
+        amount: post.amountCents / 100,
+        expiresAt: post.expiresAt,
+      } : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/posts", async (req, res) => {
+  if (!requireStripe(res)) return;
+  const customer = auth.getCurrentUser(req);
+  if (!customer) return res.status(401).json({ error: "Please log in to post a job." });
+  try {
+    const description = String(req.body.description || "").trim();
+    const category = String(req.body.category || "").trim();
+    const place = resolvePlace(req.body.place || req.body.town || "");
+    const amount = Number(req.body.amount);
+    const name = String(req.body.name || customer.name || "").trim();
+    const email = normalizeEmail(req.body.email || customer.email || "");
+    const phone = String(req.body.phone || customer.phone || "").trim();
+    if (description.length < 10) return res.status(400).json({ error: "Please describe the job in a little more detail." });
+    if (!CATEGORIES.includes(category)) return res.status(400).json({ error: "Please choose a category." });
+    if (!place) return res.status(400).json({ error: "Please choose a town in San Luis Obispo County." });
+    if (!amount || amount < 1) return res.status(400).json({ error: "Please enter the amount you are offering." });
+    if (!name) return res.status(400).json({ error: "Please enter your name." });
+    if (!phone) return res.status(400).json({ error: "Please enter a phone number." });
+
+    const amountCents = Math.round(amount * 100);
+    const commissionCents = Math.round(amountCents * (COMMISSION_PERCENT / 100));
+    const handymanPayoutCents = amountCents - commissionCents;
+    const draft = db.createPost({
+      customerUserId: customer.id,
+      customerName: name,
+      customerEmail: email,
+      customerPhone: phone,
+      description: description.slice(0, 2000),
+      category,
+      town: place.town,
+      zip: place.zip || "",
+      amountCents,
+      commissionCents,
+      platformTotalCents: commissionCents,
+      handymanPayoutCents,
+      totalChargedCents: amountCents,
+    });
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer_email: email || undefined,
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `${category} in ${place.town}`,
+              description: description.slice(0, 500),
+            },
+            unit_amount: amountCents,
+          },
+          quantity: 1,
+        },
+      ],
+      payment_intent_data: {
+        transfer_group: draft.id,
+        metadata: { postId: draft.id },
+      },
+      metadata: { postId: draft.id },
+      success_url: `${BASE_URL}/post-done.html?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${BASE_URL}/post.html?canceled=1`,
+    });
+    db.updatePost(draft.id, { stripeSessionId: session.id });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/posts/:id/cancel", async (req, res) => {
+  const user = auth.getCurrentUser(req);
+  const post = db.getPost(req.params.id);
+  if (!post) return res.status(404).json({ error: "Post not found." });
+  const owns = user && post.customerUserId === user.id;
+  if (!owns) return res.status(401).json({ error: "Please log in as the person who posted this job." });
+  if (post.status !== "open") return res.status(400).json({ error: "This job can no longer be cancelled." });
+  try {
+    const refunded = await refundPost(post, "cancelled");
+    notifyPostRefunded(refunded, "cancelled").catch((e) => console.error(e));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Couldn't refund that post. Please try again." });
+  }
+});
+
+app.post("/api/posts/:id/claim", async (req, res) => {
+  const handyman = handymanForRequest(req);
+  if (!handyman) return res.status(401).json({ error: "Log in as a handyman to take this job." });
+  const fresh = await syncHandymanStatus(handyman);
+  const post = db.getPost(req.params.id);
+  if (!post || post.status !== "open") return res.status(409).json({ error: "That job was just taken or is no longer open." });
+  if (post.expiresAt && post.expiresAt <= Date.now()) {
+    return res.status(400).json({ error: "That job has expired." });
+  }
+  if (!handymanCanTake(fresh, { category: post.category, town: post.town })) {
+    return res.status(403).json({ error: "Only an active handyman who does this work in that town can take it." });
+  }
+  const claimed = db.claimPostIfOpen(post.id, {
+    claimedByHandymanId: fresh.id,
+    claimedAt: Date.now(),
+  });
+  if (!claimed) return res.status(409).json({ error: "That job was just taken." });
+
+  try {
+    const job = db.createJob({
+      handymanId: fresh.id,
+      handymanName: fresh.name,
+      customerUserId: post.customerUserId,
+      customerName: post.customerName,
+      customerEmail: post.customerEmail,
+      customerPhone: post.customerPhone,
+      service: post.category,
+      description: `${post.description}\n\nLocation: ${post.town}${post.zip ? " " + post.zip : ""}`,
+      jobAmountCents: post.amountCents,
+      bookingFeeCents: 0,
+      commissionCents: post.commissionCents,
+      platformTotalCents: post.platformTotalCents,
+      handymanPayoutCents: post.handymanPayoutCents,
+      totalChargedCents: post.totalChargedCents,
+      stripeSessionId: post.stripeSessionId,
+    });
+    const accepted = db.updateJob(job.id, {
+      status: "accepted",
+      paidAt: post.paidAt || Date.now(),
+      acceptedAt: Date.now(),
+      stripePaymentIntentId: post.stripePaymentIntentId,
+      stripeChargeId: post.stripeChargeId,
+      postId: post.id,
+    });
+    db.updatePost(post.id, { jobId: accepted.id });
+    notifyPostClaimed(db.getPost(post.id), accepted, fresh).catch((e) => console.error(e));
+    res.json({ ok: true, jobId: accepted.id });
+  } catch (err) {
+    console.error(err);
+    db.updatePost(post.id, { status: "open", claimedByHandymanId: null, claimedAt: null });
+    res.status(500).json({ error: "Couldn't take that job. Please try again." });
+  }
+});
+
 // --- Hire + pay (Stripe Checkout; platform keeps commission only) ----------
 
 app.post("/api/checkout", async (req, res) => {
@@ -1967,6 +2357,19 @@ app.get("/api/admin/data", (req, res) => {
       budget: r.budget,
     })),
     assists: assist.publicList(),
+    posts: db.listPosts().filter((p) => p.status !== "pending" && p.status !== "abandoned").map((p) => ({
+      id: p.id,
+      date: p.createdAt,
+      status: p.status,
+      name: p.customerName,
+      email: p.customerEmail,
+      phone: p.customerPhone,
+      category: p.category,
+      town: p.town,
+      description: p.description,
+      amount: (p.amountCents || 0) / 100,
+      expiresAt: p.expiresAt,
+    })),
     contacts: db.listContacts().map((c) => ({
       id: c.id,
       date: c.createdAt,
@@ -2123,9 +2526,41 @@ async function processAutoReleases() {
   }
 }
 
+async function processOpenPosts() {
+  const now = Date.now();
+  let posts;
+  try {
+    posts = db.listPosts();
+  } catch (e) {
+    console.error("Open posts: couldn't read posts:", e.message);
+    return;
+  }
+  for (const post of posts) {
+    if (post.status === "pending" && now - post.createdAt > 24 * 60 * 60 * 1000) {
+      db.updatePost(post.id, { status: "abandoned" });
+      continue;
+    }
+    if (post.status === "open" && post.expiresAt && now >= post.expiresAt) {
+      try {
+        const refunded = await refundPost(post, "expired");
+        notifyPostRefunded(refunded, "expired").catch((e) => console.error(e));
+        console.log(`Refunded unclaimed post ${post.id}`);
+      } catch (e) {
+        console.error(`Post refund failed for ${post.id}:`, e.message);
+      }
+    }
+  }
+}
+
 // Run shortly after startup, then hourly.
-setTimeout(() => { processAutoReleases().catch((e) => console.error(e)); }, 30 * 1000);
-setInterval(() => { processAutoReleases().catch((e) => console.error(e)); }, 60 * 60 * 1000);
+setTimeout(() => {
+  processAutoReleases().catch((e) => console.error(e));
+  processOpenPosts().catch((e) => console.error(e));
+}, 30 * 1000);
+setInterval(() => {
+  processAutoReleases().catch((e) => console.error(e));
+  processOpenPosts().catch((e) => console.error(e));
+}, 60 * 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`\n  SLO Handyman running at ${BASE_URL}`);

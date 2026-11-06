@@ -122,6 +122,17 @@ function categoryFits(handyman, category) {
   return services.some((s) => s.includes(want) || want.includes(s));
 }
 
+// A posted job can be taken only by someone who is working, can be paid,
+// does that kind of work, and covers that town.
+export function handymanCanTake(handyman, { category, town } = {}) {
+  if (!handyman) return false;
+  if (handyman.available === false) return false;
+  if (!handyman.payoutsEnabled) return false;
+  if (!categoryFits(handyman, category)) return false;
+  if (town && !areaFits(handyman, town)) return false;
+  return true;
+}
+
 function openJobCount(handymanId) {
   return db.listJobsForHandyman(handymanId).filter((j) =>
     ["paid", "accepted", "work_done"].includes(j.status)
