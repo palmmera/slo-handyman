@@ -1729,17 +1729,21 @@ app.get("/api/my/posts", (req, res) => {
   if (!user) return res.status(401).json({ error: "Please log in." });
   const posts = db.listPosts().filter((p) => p.customerUserId === user.id && p.status !== "pending" && p.status !== "abandoned");
   res.json({
-    posts: posts.map((p) => ({
-      id: p.id,
-      status: p.status,
-      category: p.category,
-      town: p.town,
-      description: p.description,
-      amount: p.amountCents / 100,
-      expiresAt: p.expiresAt,
-      date: p.createdAt,
-      jobId: p.jobId,
-    })),
+    posts: posts.map((p) => {
+      const job = p.jobId ? db.getJob(p.jobId) : null;
+      return {
+        id: p.id,
+        status: p.status,
+        category: p.category,
+        town: p.town,
+        description: p.description,
+        amount: p.amountCents / 100,
+        expiresAt: p.expiresAt,
+        date: p.createdAt,
+        jobId: p.jobId,
+        manageUrl: job ? `/job.html?id=${job.id}&token=${job.reviewToken}` : null,
+      };
+    }),
   });
 });
 
@@ -1832,6 +1836,56 @@ app.post("/api/posts", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/posts/:id", async (req, res) => {
+  const user = auth.getCurrentUser(req);
+  const post = db.getPost(req.params.id);
+  if (!post) return res.status(404).json({ error: "Post not found." });
+  if (!user || post.customerUserId !== user.id) {
+    return res.status(401).json({ error: "Please log in as the person who posted this job." });
+  }
+  if (post.status !== "open") {
+    return res.status(400).json({ error: "This job can no longer be changed." });
+  }
+  const description = String(req.body.description || "").trim();
+  const category = String(req.body.category || "").trim();
+  const place = resolvePlace(req.body.place || req.body.town || "");
+  const amount = Number(req.body.amount);
+  if (description.length < 10) return res.status(400).json({ error: "Please describe the job in a little more detail." });
+  if (!CATEGORIES.includes(category)) return res.status(400).json({ error: "Please choose a category." });
+  if (!place) return res.status(400).json({ error: "Please choose a town in San Luis Obispo County." });
+  if (!amount || amount < 1) return res.status(400).json({ error: "Please enter the amount you are offering." });
+  const amountCents = Math.round(amount * 100);
+  if (amountCents > post.amountCents) {
+    return res.status(400).json({ error: "To offer more, cancel this post for a refund and post a new one." });
+  }
+  try {
+    let refunded = 0;
+    if (amountCents < post.amountCents) {
+      const diff = post.amountCents - amountCents;
+      if (stripe && post.stripePaymentIntentId) {
+        await stripe.refunds.create({ payment_intent: post.stripePaymentIntentId, amount: diff });
+      }
+      refunded = diff / 100;
+    }
+    const commissionCents = Math.round(amountCents * (COMMISSION_PERCENT / 100));
+    db.updatePost(post.id, {
+      description: description.slice(0, 2000),
+      category,
+      town: place.town,
+      zip: place.zip || "",
+      amountCents,
+      commissionCents,
+      platformTotalCents: commissionCents,
+      handymanPayoutCents: amountCents - commissionCents,
+      totalChargedCents: amountCents,
+    });
+    res.json({ ok: true, refunded });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Couldn't update that post. Please try again." });
   }
 });
 

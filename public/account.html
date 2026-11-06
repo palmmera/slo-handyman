@@ -56,40 +56,103 @@
       }
       renderAuthNav();
       document.getElementById("subtitle").textContent =
-        `Signed in as ${user.email || user.name}. All the jobs you've booked, in one place.`;
+        `Signed in as ${user.email || user.name}. Your posted offers and bookings are here.`;
 
-      const [bookRes, postRes] = await Promise.all([
+      const [bookRes, postRes, placesRes] = await Promise.all([
         fetch("/api/my/bookings"),
         fetch("/api/my/posts"),
+        fetch("/api/assist/places"),
       ]);
       const data = await bookRes.json();
       const posted = await postRes.json().catch(() => ({ posts: [] }));
+      const places = await placesRes.json().catch(() => ({ towns: [], categories: [] }));
       list.innerHTML = "";
 
-      const mine = (posted.posts || []).filter((p) => p.status === "open" || p.status === "claimed");
+      const labels = {
+        open: "Waiting for a handyman",
+        claimed: "Taken — payment still held",
+        cancelled: "Cancelled — refunded",
+        expired: "Nobody took it — refunded",
+      };
+      const mine = posted.posts || [];
       if (mine.length) {
-        list.append(el("h2", { style: "text-align:left;margin:0 0 10px" }, "Posted jobs"));
+        list.append(el("h2", { style: "text-align:left;margin:0 0 10px" }, "Your job offers"));
         for (const p of mine) {
-          const card = el("div", { class: "card", style: "margin-bottom:12px;text-align:left" }, [
-            el("div", { class: "svc", style: "font-weight:800" }, `${p.category} · ${p.town}`),
-            el("p", { style: "margin:8px 0" }, p.description),
-            el("div", { class: "meta", style: "color:var(--muted)" }, `${money(p.amount)} held · ${p.status === "open" ? "Waiting for a handyman" : "A handyman took this"}`),
-          ]);
+          const card = el("div", { class: "card", style: "margin-bottom:12px;text-align:left" });
+          const msg = el("div");
+          card.append(
+            el("div", { style: "font-weight:800" }, `${p.category || "Job"} · ${p.town || ""}`),
+            el("div", { class: "meta", style: "margin-top:4px" }, `${labels[p.status] || p.status} · ${money(p.amount)}`),
+          );
           if (p.status === "open") {
-            const btn = el("button", { class: "btn secondary", style: "margin-top:10px" }, "Cancel and refund");
-            btn.addEventListener("click", async () => {
-              if (!confirm("Cancel this post and refund the payment?")) return;
-              btn.disabled = true;
+            const description = el("textarea", { class: "input", rows: "4", style: "margin-top:10px" });
+            description.value = p.description || "";
+            const category = el("select", { class: "input", style: "margin-top:8px" });
+            for (const c of places.categories || []) {
+              const opt = el("option", { value: c }, c);
+              if (c === p.category) opt.selected = true;
+              category.append(opt);
+            }
+            const town = el("select", { class: "input", style: "margin-top:8px" });
+            for (const t of places.towns || []) {
+              const opt = el("option", { value: t }, t);
+              if (t === p.town) opt.selected = true;
+              town.append(opt);
+            }
+            const amount = el("input", { class: "input", type: "number", min: "1", step: "0.01", style: "margin-top:8px" });
+            amount.value = Number(p.amount).toFixed(2);
+            const save = el("button", { class: "btn", type: "button", style: "margin-top:10px" }, "Save changes");
+            const cancel = el("button", { class: "btn secondary", type: "button", style: "margin-top:8px" }, "Cancel and refund");
+            save.addEventListener("click", async () => {
+              save.disabled = true;
+              msg.innerHTML = "";
+              try {
+                const res = await fetch(`/api/posts/${encodeURIComponent(p.id)}`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    description: description.value,
+                    category: category.value,
+                    place: town.value,
+                    amount: amount.value,
+                  }),
+                });
+                const out = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(out.error || "Couldn't save that offer.");
+                msg.append(el("div", { class: "notice ok", style: "margin-top:10px" }, out.refunded
+                  ? `Saved. ${money(out.refunded)} is being refunded.`
+                  : "Saved. The homepage shows the updated offer."));
+              } catch (err) {
+                msg.append(el("div", { class: "notice error", style: "margin-top:10px" }, err.message));
+              }
+              save.disabled = false;
+            });
+            cancel.addEventListener("click", async () => {
+              if (!confirm("Cancel this offer and refund the full amount still held?")) return;
+              cancel.disabled = true;
               const res = await fetch(`/api/posts/${encodeURIComponent(p.id)}/cancel`, { method: "POST" });
               const out = await res.json().catch(() => ({}));
               if (!res.ok) {
-                btn.disabled = false;
-                alert(out.error || "Couldn't cancel that post.");
+                cancel.disabled = false;
+                msg.innerHTML = "";
+                msg.append(el("div", { class: "notice error", style: "margin-top:10px" }, out.error || "Couldn't cancel that offer."));
                 return;
               }
               location.reload();
             });
-            card.append(btn);
+            card.append(
+              description,
+              category,
+              town,
+              amount,
+              el("p", { class: "hint", style: "margin:8px 0 0" }, "Lowering the amount refunds the difference. To offer more, cancel for a refund and post a new job. Cancel refunds whatever is still held."),
+              save,
+              cancel,
+              msg,
+            );
+          } else {
+            card.append(el("p", { style: "margin:8px 0 0;white-space:pre-wrap" }, p.description || ""));
+            if (p.manageUrl) card.append(el("a", { class: "btn", href: p.manageUrl, style: "margin-top:10px" }, "View booking"));
           }
           list.append(card);
         }
